@@ -23,7 +23,7 @@ export default function RootLayout({
     <html lang="en" className={`${geist.variable} h-full antialiased`}>
       <body className="h-full flex flex-col font-[family-name:var(--font-geist)]">
         <Header />
-        <main className="flex-1 relative">{children}</main>
+        <main className="flex-1 min-h-0 relative overflow-hidden">{children}</main>
       </body>
     </html>
   );
