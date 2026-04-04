@@ -504,67 +504,139 @@ export default function MapContainer() {
 
   // ── Data loading ──
 
+  // Track which bbox cells have already been fetched to avoid re-requesting
+  const fetchedCellsRef = useRef<Set<string>>(new Set());
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Fetch trails for a bbox string and merge into cache. Returns new feature count. */
+  const fetchAndCacheBbox = useCallback(async (bboxStr: string): Promise<number> => {
+    const res = await fetch(`/api/trails/geojson?bbox=${bboxStr}`);
+    const geojson = await res.json();
+    if (geojson._error) {
+      console.error(`[ROAM] API error: ${geojson._error}`);
+      return 0;
+    }
+    const cache = trailCacheRef.current;
+    let added = 0;
+    for (const feature of (geojson.features || [])) {
+      const id = feature.properties?.id;
+      if (id && !cache.has(id)) added++;
+      if (id) cache.set(id, feature);
+    }
+    return added;
+  }, []);
+
+  /** Push the accumulated cache to map sources and sidebar */
+  const flushCacheToMap = useCallback((map: maplibregl.Map) => {
+    const accumulated: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: Array.from(trailCacheRef.current.values()),
+    };
+    trailGeoJsonRef.current = accumulated;
+
+    const source = map.getSource('trails') as maplibregl.GeoJSONSource;
+    if (source) source.setData(accumulated);
+
+    const labels = buildLengthLabels(accumulated);
+    const labelSource = map.getSource('trail-labels') as maplibregl.GeoJSONSource;
+    if (labelSource) labelSource.setData(labels);
+
+    // Keep selected trail highlighted
+    if (selectedTrailIdRef.current) {
+      const selectedFeature = accumulated.features?.find(
+        (f: GeoJSON.Feature) => f.properties?.id === selectedTrailIdRef.current
+      );
+      const selectedSource = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
+      if (selectedSource) {
+        selectedSource.setData(selectedFeature
+          ? { type: 'FeatureCollection', features: [selectedFeature] }
+          : { type: 'FeatureCollection', features: [] }
+        );
+      }
+    }
+
+    setTrailGroups(extractTrailGroups(accumulated));
+  }, []);
+
+  /** Round a bbox to a grid cell key for deduplication */
+  const bboxCellKey = useCallback((w: number, s: number, e: number, n: number, cellW: number, cellH: number) => {
+    // Snap to grid so the same area doesn't get fetched twice
+    const gw = Math.floor(w / cellW) * cellW;
+    const gs = Math.floor(s / cellH) * cellH;
+    return `${gw.toFixed(3)},${gs.toFixed(3)},${(gw + cellW).toFixed(3)},${(gs + cellH).toFixed(3)}`;
+  }, []);
+
+  /** Prefetch a ring of tiles surrounding the current viewport */
+  const prefetchSurrounding = useCallback(async (map: maplibregl.Map) => {
+    const bounds = map.getBounds();
+    const zoom = map.getZoom();
+    if (zoom < MIN_DATA_ZOOM) return;
+
+    const w = bounds.getWest(), s = bounds.getSouth();
+    const e = bounds.getEast(), n = bounds.getNorth();
+    const vw = e - w;  // viewport width in degrees
+    const vh = n - s;  // viewport height in degrees
+
+    // Build a 5×5 grid centered on the viewport (covers ±2 viewports in each direction)
+    const cells: string[] = [];
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (dx === 0 && dy === 0) continue; // skip center (already loaded)
+        const cellW = w + dx * vw;
+        const cellS = s + dy * vh;
+        const cellE = cellW + vw;
+        const cellN = cellS + vh;
+        const key = bboxCellKey(cellW, cellS, cellE, cellN, vw, vh);
+        if (!fetchedCellsRef.current.has(key)) {
+          cells.push(`${cellW},${cellS},${cellE},${cellN}`);
+          fetchedCellsRef.current.add(key);
+        }
+      }
+    }
+
+    if (cells.length === 0) return;
+    console.log(`[ROAM] Prefetching ${cells.length} surrounding cells at z${zoom.toFixed(1)}`);
+
+    // Fetch in batches of 4 to avoid hammering the API
+    let totalAdded = 0;
+    for (let i = 0; i < cells.length; i += 4) {
+      const batch = cells.slice(i, i + 4);
+      const results = await Promise.all(batch.map(bbox => fetchAndCacheBbox(bbox)));
+      totalAdded += results.reduce((a, b) => a + b, 0);
+      // Flush to map after each batch so trails appear progressively
+      if (totalAdded > 0) flushCacheToMap(map);
+    }
+
+    if (totalAdded > 0) {
+      console.log(`[ROAM] Prefetch complete: +${totalAdded} new trails | total cached: ${trailCacheRef.current.size}`);
+    }
+  }, [fetchAndCacheBbox, flushCacheToMap, bboxCellKey]);
+
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
     const zoom = map.getZoom();
     if (zoom < MIN_DATA_ZOOM) return;
 
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+
+    // Mark center cell as fetched
+    const vw = bounds.getEast() - bounds.getWest();
+    const vh = bounds.getNorth() - bounds.getSouth();
+    const centerKey = bboxCellKey(bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth(), vw, vh);
+    fetchedCellsRef.current.add(centerKey);
+
     try {
-      const res = await fetch(`/api/trails/geojson?bbox=${bbox}`);
-      const geojson = await res.json();
+      const added = await fetchAndCacheBbox(bbox);
+      console.log(`[ROAM] Fetched viewport at z${zoom.toFixed(1)} | +${added} new | total cached: ${trailCacheRef.current.size}`);
+      flushCacheToMap(map);
 
-      // Surface API-level errors
-      if (geojson._error) {
-        console.error(`[ROAM] API error: ${geojson._error}`);
-      }
-
-      const newCount = geojson.features?.length ?? 0;
-
-      // ── Accumulate trails: merge new features into cache by ID ──
-      const cache = trailCacheRef.current;
-      for (const feature of (geojson.features || [])) {
-        const id = feature.properties?.id;
-        if (id) cache.set(id, feature);
-      }
-
-      // Build accumulated GeoJSON from the full cache
-      const accumulated: GeoJSON.FeatureCollection = {
-        type: 'FeatureCollection',
-        features: Array.from(cache.values()),
-      };
-
-      console.log(`[ROAM] Fetched ${newCount} trails at z${zoom.toFixed(1)} | total cached: ${cache.size} | status: ${res.status}`);
-
-      // Store full accumulated GeoJSON for selection filtering
-      trailGeoJsonRef.current = accumulated;
-
-      const source = map.getSource('trails') as maplibregl.GeoJSONSource;
-      if (source) source.setData(accumulated);
-
-      const labels = buildLengthLabels(accumulated);
-      const labelSource = map.getSource('trail-labels') as maplibregl.GeoJSONSource;
-      if (labelSource) labelSource.setData(labels);
-
-      // If a trail is currently selected, keep it highlighted
-      if (selectedTrailIdRef.current) {
-        const selectedFeature = accumulated.features?.find(
-          (f: GeoJSON.Feature) => f.properties?.id === selectedTrailIdRef.current
-        );
-        const selectedSource = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
-        if (selectedSource) {
-          selectedSource.setData(selectedFeature
-            ? { type: 'FeatureCollection', features: [selectedFeature] }
-            : { type: 'FeatureCollection', features: [] }
-          );
-        }
-      }
-
-      setTrailGroups(extractTrailGroups(accumulated));
+      // Debounced prefetch of surrounding cells
+      if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = setTimeout(() => prefetchSurrounding(map), 300);
     } catch (err) {
       console.error('Failed to load trails:', err);
     }
-  }, []);
+  }, [fetchAndCacheBbox, flushCacheToMap, prefetchSurrounding, bboxCellKey]);
 
   // ── User marker ──
 
