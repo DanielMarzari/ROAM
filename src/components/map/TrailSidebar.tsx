@@ -14,10 +14,11 @@ interface TrailSidebarProps {
 
 export default function TrailSidebar({ groups, open, onToggle, onTrailSelect, onGroupSelect, trailColor }: TrailSidebarProps) {
   const [search, setSearch] = useState('');
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [manualCollapsed, setManualCollapsed] = useState<Set<string>>(new Set());
 
+  // Groups are expanded by default; user can manually collapse
   const toggleGroup = (name: string) => {
-    setExpanded((prev) => {
+    setManualCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -110,7 +111,8 @@ export default function TrailSidebar({ groups, open, onToggle, onTrailSelect, on
           )}
 
           {filteredGroups.map((group) => {
-            const isExpanded = expanded.has(group.name);
+            // Expanded by default unless manually collapsed
+            const isExpanded = !manualCollapsed.has(group.name);
 
             return (
               <div key={group.name} style={{ borderBottom: '1px solid #e7e5e4' }}>

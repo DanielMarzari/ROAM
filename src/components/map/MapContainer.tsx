@@ -219,33 +219,31 @@ export default function MapContainer() {
       map.addLayer(satelliteLayer);
     }
 
-    // Trail casing — visible from zoom 6
+    // Trail casing — visible from any zoom
     if (!map.getLayer('trail-lines-casing')) {
       map.addLayer({
         id: 'trail-lines-casing',
         type: 'line',
         source: 'trails',
-        minzoom: 6,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': '#000000',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3, 10, 5, 14, 8, 18, 12],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1, 6, 3, 10, 5, 14, 8, 18, 12],
           'line-opacity': 0.3,
         },
       });
     }
 
-    // Trail lines — visible from zoom 6, use current color from ref
+    // Trail lines — visible from any zoom, use current color from ref
     if (!map.getLayer('trail-lines')) {
       map.addLayer({
         id: 'trail-lines',
         type: 'line',
         source: 'trails',
-        minzoom: 6,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': trailColorRef.current,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.5, 10, 3, 14, 5, 18, 8],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.5, 6, 1.5, 10, 3, 14, 5, 18, 8],
           'line-opacity': 1,
         },
       });
