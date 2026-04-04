@@ -1,10 +1,11 @@
 import type { BasemapStyle } from '@/types/map';
 
 /**
- * All tile sources are free and require no API keys.
+ * Basemap styles. "topo" uses a vector base + raster contour overlay
+ * for real elevation rings. All others are OpenFreeMap vector tiles.
  */
 
-export const BASEMAP_STYLES: Record<BasemapStyle, { name: string; url: string; attribution: string }> = {
+export const BASEMAP_STYLES: Record<BasemapStyle, { name: string; url: string; attribution: string; raster?: boolean }> = {
   outdoor: {
     name: 'Outdoor',
     url: 'https://tiles.openfreemap.org/styles/liberty',
@@ -21,9 +22,10 @@ export const BASEMAP_STYLES: Record<BasemapStyle, { name: string; url: string; a
     attribution: '© <a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   },
   topo: {
-    name: 'Topographic',
-    url: 'https://tiles.openfreemap.org/styles/positron',
-    attribution: '© <a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    name: 'Topo',
+    url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
+    raster: true,
   },
 };
 
@@ -48,7 +50,7 @@ export const OVERLAY_TILES = {
 /**
  * Default trail color (yellow) — user can override via color picker.
  */
-export const DEFAULT_TRAIL_COLOR = '#eab308'; // yellow-500
+export const DEFAULT_TRAIL_COLOR = '#eab308';
 
 /**
  * Preset trail color options for the color picker.
@@ -64,17 +66,33 @@ export const TRAIL_COLOR_PRESETS = [
   { name: 'White', color: '#ffffff' },
 ];
 
-export const DEFAULT_CENTER: [number, number] = [-98.5795, 39.8283]; // Center of US
+export const DEFAULT_CENTER: [number, number] = [-98.5795, 39.8283];
 export const DEFAULT_ZOOM = 4;
 
 /**
- * Keywords to identify basemap trail/path layers (NOT roads or service tracks).
- * Used to dynamically find and restyle trail layers in any basemap style.
- * "path" and "pedestrian" match hiking/walking paths across all OpenFreeMap styles.
+ * Keywords to identify basemap trail/path layers (not roads).
  */
 export const PATH_LAYER_KEYWORDS = ['path', 'pedestrian'];
+export const PATH_LAYER_EXCLUDE = ['service', 'track', 'landuse'];
 
 /**
- * Keywords to EXCLUDE — these match road/service layers that should stay untouched.
+ * Road layer IDs to desaturate on outdoor mode (greyscale roads
+ * so trails stand out). Covers motorways, trunks, primary, secondary,
+ * minor roads, and their casings.
  */
-export const PATH_LAYER_EXCLUDE = ['service', 'track', 'landuse'];
+export const ROAD_LAYERS_TO_DESATURATE = [
+  'road_motorway', 'road_motorway_casing', 'road_motorway_link', 'road_motorway_link_casing',
+  'road_trunk_primary', 'road_trunk_primary_casing',
+  'road_secondary_tertiary', 'road_secondary_tertiary_casing',
+  'road_link', 'road_link_casing',
+  'road_minor', 'road_minor_casing',
+  'road_service_track', 'road_service_track_casing',
+  'bridge_motorway', 'bridge_motorway_casing', 'bridge_motorway_link', 'bridge_motorway_link_casing',
+  'bridge_trunk_primary', 'bridge_trunk_primary_casing',
+  'tunnel_motorway', 'tunnel_motorway_casing', 'tunnel_motorway_link', 'tunnel_motorway_link_casing',
+  'tunnel_trunk_primary', 'tunnel_trunk_primary_casing',
+];
+
+/** Gray color for desaturated roads */
+export const ROAD_DESATURATED_COLOR = '#c4c4c4';
+export const ROAD_CASING_DESATURATED_COLOR = '#b0b0b0';

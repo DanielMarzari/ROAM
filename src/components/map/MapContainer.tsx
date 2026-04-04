@@ -3,10 +3,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { BASEMAP_STYLES, DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_TRAIL_COLOR, PATH_LAYER_KEYWORDS, PATH_LAYER_EXCLUDE } from '@/lib/maps/config';
+import {
+  BASEMAP_STYLES, DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_TRAIL_COLOR,
+  PATH_LAYER_KEYWORDS, PATH_LAYER_EXCLUDE,
+  ROAD_LAYERS_TO_DESATURATE, ROAD_DESATURATED_COLOR, ROAD_CASING_DESATURATED_COLOR,
+} from '@/lib/maps/config';
 import { satelliteSource, satelliteLayer } from '@/lib/maps/layers';
 import type { BasemapStyle } from '@/types/map';
-import LayerToggle from './LayerToggle';
+import MapControls from './MapControls';
 import TrailSidebar from './TrailSidebar';
 
 // Boundary / admin layers to hide
@@ -169,6 +173,7 @@ export default function MapContainer() {
   const trailColorRef = useRef(DEFAULT_TRAIL_COLOR);
   const showTrailsRef = useRef(true);
   const showSatelliteRef = useRef(false);
+  const basemapRef = useRef<BasemapStyle>('outdoor');
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [basemap, setBasemap] = useState<BasemapStyle>('outdoor');
@@ -182,6 +187,7 @@ export default function MapContainer() {
   useEffect(() => { trailColorRef.current = trailColor; }, [trailColor]);
   useEffect(() => { showTrailsRef.current = showTrails; }, [showTrails]);
   useEffect(() => { showSatelliteRef.current = showSatellite; }, [showSatellite]);
+  useEffect(() => { basemapRef.current = basemap; }, [basemap]);
 
   // ── Basemap path helpers ──
 
@@ -191,7 +197,7 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Discover, cache, color, and set visibility of basemap path layers */
+  /** Discover, cache, color, and set visibility of basemap path layers — make them solid */
   const setupBasemapPaths = useCallback((map: maplibregl.Map, color: string, visible: boolean) => {
     const pathLayers = findBasemapPathLayers(map);
     basemapPathLayersRef.current = pathLayers;
@@ -206,9 +212,22 @@ export default function MapContainer() {
           map.setPaintProperty(id, 'line-color', color);
           map.setPaintProperty(id, 'line-opacity', 1);
           map.setPaintProperty(id, 'line-width', 2);
+          // Force solid lines (remove any dash pattern)
+          map.setPaintProperty(id, 'line-dasharray', undefined);
         } else if (layer?.type === 'symbol') {
           map.setPaintProperty(id, 'text-color', color);
         }
+      } catch { /* skip */ }
+    }
+  }, []);
+
+  /** Desaturate road layers to greyscale (outdoor mode only) */
+  const desaturateRoads = useCallback((map: maplibregl.Map) => {
+    for (const id of ROAD_LAYERS_TO_DESATURATE) {
+      if (!map.getLayer(id)) continue;
+      try {
+        const isCasing = id.includes('casing');
+        map.setPaintProperty(id, 'line-color', isCasing ? ROAD_CASING_DESATURATED_COLOR : ROAD_DESATURATED_COLOR);
       } catch { /* skip */ }
     }
   }, []);
@@ -305,7 +324,11 @@ export default function MapContainer() {
     hideBoundaryLayers(map);
     // Discover, color, and set visibility for basemap path layers
     setupBasemapPaths(map, trailColorRef.current, showTrailsRef.current);
-  }, [hideBoundaryLayers, setupBasemapPaths]);
+    // Desaturate roads when in outdoor mode
+    if (basemapRef.current === 'outdoor') {
+      desaturateRoads(map);
+    }
+  }, [hideBoundaryLayers, setupBasemapPaths, desaturateRoads]);
 
   // ── Data loading ──
 
@@ -363,7 +386,6 @@ export default function MapContainer() {
       zoom: DEFAULT_ZOOM,
     });
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
 
     map.on('load', () => {
@@ -430,7 +452,28 @@ export default function MapContainer() {
     const map = mapRef.current;
     if (!map) return;
     setBasemap(style);
-    map.setStyle(BASEMAP_STYLES[style].url);
+
+    const cfg = BASEMAP_STYLES[style];
+
+    // For raster basemaps (topo), build a style object; for vector, use style URL
+    if (cfg.raster) {
+      map.setStyle({
+        version: 8,
+        sources: {
+          'raster-basemap': {
+            type: 'raster',
+            tiles: [cfg.url],
+            tileSize: 256,
+            attribution: cfg.attribution,
+          },
+        },
+        layers: [
+          { id: 'raster-basemap-layer', type: 'raster', source: 'raster-basemap' },
+        ],
+      });
+    } else {
+      map.setStyle(cfg.url);
+    }
 
     map.once('style.load', () => {
       addSourcesAndLayers(map);
@@ -485,6 +528,30 @@ export default function MapContainer() {
     map.flyTo({ center: group.center, zoom: 13, speed: 1.2 });
   }, []);
 
+  // ── Custom zoom & locate for right-side controls ──
+
+  const handleZoomIn = useCallback(() => {
+    mapRef.current?.zoomIn({ duration: 300 });
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    mapRef.current?.zoomOut({ duration: 300 });
+  }, []);
+
+  const handleLocate = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || !('geolocation' in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { longitude, latitude } = pos.coords;
+        createUserMarker(map, longitude, latitude);
+        map.flyTo({ center: [longitude, latitude], zoom: 14, speed: 1.5 });
+      },
+      (err) => console.warn('Geolocation failed:', err),
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  }, [createUserMarker]);
+
   return (
     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex' }}>
       <style>{`
@@ -509,7 +576,7 @@ export default function MapContainer() {
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
         {mapLoaded && (
-          <LayerToggle
+          <MapControls
             basemap={basemap}
             showSatellite={showSatellite}
             showTrails={showTrails}
@@ -518,6 +585,9 @@ export default function MapContainer() {
             onSatelliteToggle={handleSatelliteToggle}
             onTrailToggle={handleTrailToggle}
             onTrailColorChange={setTrailColor}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onLocate={handleLocate}
           />
         )}
 
