@@ -526,6 +526,26 @@ export default function MapContainer() {
     return added;
   }, []);
 
+  /** Check if any coordinate in a feature intersects a bounding box */
+  const featureInBounds = useCallback((feature: GeoJSON.Feature, bounds: maplibregl.LngLatBounds): boolean => {
+    const w = bounds.getWest(), s = bounds.getSouth();
+    const e = bounds.getEast(), n = bounds.getNorth();
+    const geom = feature.geometry;
+    let coords: number[][] = [];
+    if (geom.type === 'LineString') coords = geom.coordinates as number[][];
+    else if (geom.type === 'MultiLineString') {
+      for (const seg of geom.coordinates as number[][][]) coords.push(...seg);
+    } else if (geom.type === 'Point') {
+      const [lng, lat] = geom.coordinates as number[];
+      return lng >= w && lng <= e && lat >= s && lat <= n;
+    }
+    // Check if ANY point falls within bounds (fast enough for our use)
+    for (const c of coords) {
+      if (c[0] >= w && c[0] <= e && c[1] >= s && c[1] <= n) return true;
+    }
+    return false;
+  }, []);
+
   /** Push the accumulated cache to map sources and sidebar */
   const flushCacheToMap = useCallback((map: maplibregl.Map) => {
     const accumulated: GeoJSON.FeatureCollection = {
@@ -555,8 +575,12 @@ export default function MapContainer() {
       }
     }
 
-    setTrailGroups(extractTrailGroups(accumulated));
-  }, []);
+    // Sidebar only shows trails in the current viewport
+    const bounds = map.getBounds();
+    const visibleFeatures = accumulated.features.filter(f => featureInBounds(f, bounds));
+    const visibleGeoJson: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: visibleFeatures };
+    setTrailGroups(extractTrailGroups(visibleGeoJson));
+  }, [featureInBounds]);
 
   /** Round a bbox to a grid cell key for deduplication */
   const bboxCellKey = useCallback((w: number, s: number, e: number, n: number, cellW: number, cellH: number) => {
