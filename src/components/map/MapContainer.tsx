@@ -229,13 +229,11 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Style basemap path layers — DEBUG: bright RED so we can identify them */
+  /** Style basemap path layers as dashed black */
   const setupBasemapPaths = useCallback((map: maplibregl.Map, visible: boolean) => {
     const pathLayers = findBasemapPathLayers(map);
     basemapPathLayersRef.current = pathLayers;
     const vis = visible ? 'visible' : 'none';
-
-    console.log('[ROAM DEBUG] Basemap path layers (RED):', pathLayers);
 
     for (const id of pathLayers) {
       if (!map.getLayer(id)) continue;
@@ -243,9 +241,9 @@ export default function MapContainer() {
       map.setLayoutProperty(id, 'visibility', vis);
       try {
         if (layer?.type === 'line') {
-          map.setPaintProperty(id, 'line-color', '#ff0000');  // DEBUG: RED
-          map.setPaintProperty(id, 'line-opacity', 0.9);
-          map.setPaintProperty(id, 'line-width', 3);
+          map.setPaintProperty(id, 'line-color', TRAIL_LINE_COLOR);
+          map.setPaintProperty(id, 'line-opacity', 0.7);
+          map.setPaintProperty(id, 'line-width', 1.5);
           map.setPaintProperty(id, 'line-dasharray', TRAIL_DASH_PATTERN);
         }
       } catch { /* skip */ }
@@ -398,32 +396,33 @@ export default function MapContainer() {
       map.addLayer(contourLabelLayer);
     }
 
-    // Trail casing — DEBUG: BLUE, forced VISIBLE
+    // Trail casing — hidden by default (basemap paths provide default trail rendering)
     if (!map.getLayer('trail-lines-casing')) {
       map.addLayer({
         id: 'trail-lines-casing',
         type: 'line',
         source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'visible' },
+        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'none' },
         paint: {
-          'line-color': '#0000ff',  // DEBUG: BLUE
+          'line-color': '#000000',
           'line-width': ['interpolate', ['linear'], ['zoom'], 3, 2, 6, 3, 10, 5, 14, 7, 18, 10],
-          'line-opacity': 0.5,
+          'line-opacity': 0.12,
         },
       });
     }
 
-    // Trail lines — DEBUG: ORANGE, forced VISIBLE
+    // Trail lines — hidden by default
     if (!map.getLayer('trail-lines')) {
       map.addLayer({
         id: 'trail-lines',
         type: 'line',
         source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'visible' },
+        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'none' },
         paint: {
-          'line-color': '#ff8800',  // DEBUG: ORANGE
+          'line-color': TRAIL_LINE_COLOR,
           'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.2, 6, 2, 10, 3.5, 14, 5, 18, 7],
           'line-opacity': 1,
+          'line-dasharray': TRAIL_DASH_PATTERN,
         },
       });
     }
@@ -459,7 +458,7 @@ export default function MapContainer() {
       map.addSource('selected-trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     }
 
-    // Selected trail outer glow/casing — DEBUG: GREEN (only shows when trail selected)
+    // Selected trail outer glow/casing
     if (!map.getLayer('selected-trail-casing')) {
       map.addLayer({
         id: 'selected-trail-casing',
@@ -467,9 +466,9 @@ export default function MapContainer() {
         source: 'selected-trail',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': '#00ff00',  // DEBUG: BRIGHT GREEN
+          'line-color': '#065f46',
           'line-width': ['interpolate', ['linear'], ['zoom'], 10, 6, 14, 10, 18, 14],
-          'line-opacity': 0.5,
+          'line-opacity': 0.35,
         },
       });
     }
