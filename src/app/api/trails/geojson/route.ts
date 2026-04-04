@@ -40,6 +40,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Verify env vars are present
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!url || !key) {
+      console.error('[ROAM] Missing env vars:', {
+        hasUrl: !!url,
+        hasServiceKey: !!key,
+        hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      });
+      return NextResponse.json(
+        { type: 'FeatureCollection', features: [], _error: 'Missing Supabase credentials' },
+        { status: 500 }
+      );
+    }
+
     const supabase = createServiceClient();
 
     const { data, error } = await supabase.rpc('trails_as_geojson', {
@@ -51,8 +67,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (error) {
-      console.error('GeoJSON query error:', error);
-      return NextResponse.json({ type: 'FeatureCollection', features: [] });
+      console.error('[ROAM] GeoJSON query error:', error);
+      return NextResponse.json(
+        { type: 'FeatureCollection', features: [], _error: error.message },
+        { status: 500 }
+      );
     }
 
     const geojson = data || { type: 'FeatureCollection', features: [] };
@@ -98,7 +117,10 @@ export async function GET(request: NextRequest) {
       headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
     });
   } catch (err) {
-    console.error('GeoJSON endpoint error:', err);
-    return NextResponse.json({ type: 'FeatureCollection', features: [] });
+    console.error('[ROAM] GeoJSON endpoint error:', err);
+    return NextResponse.json(
+      { type: 'FeatureCollection', features: [], _error: String(err) },
+      { status: 500 }
+    );
   }
 }

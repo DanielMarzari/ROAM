@@ -471,13 +471,17 @@ export default function MapContainer() {
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
     try {
       const res = await fetch(`/api/trails/geojson?bbox=${bbox}`);
-      if (!res.ok) return;
       const geojson = await res.json();
+
+      // Surface API-level errors
+      if (geojson._error) {
+        console.error(`[ROAM] API error: ${geojson._error}`);
+      }
 
       // Debug: log trail count at each load
       const count = geojson.features?.length ?? 0;
-      console.log(`[ROAM] Loaded ${count} trails at z${zoom.toFixed(1)} | bbox: ${bbox}`);
-      if (count === 0) {
+      console.log(`[ROAM] Loaded ${count} trails at z${zoom.toFixed(1)} | bbox: ${bbox} | status: ${res.status}`);
+      if (count === 0 && !geojson._error) {
         console.warn('[ROAM] No trails returned — check if Supabase is reachable and has data for this bbox');
       }
 
