@@ -191,15 +191,43 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Discover and cache basemap path layers (toggle only, no coloring) */
-  const discoverBasemapPaths = useCallback((map: maplibregl.Map) => {
-    basemapPathLayersRef.current = findBasemapPathLayers(map);
+  /** Discover, cache, color, and set visibility of basemap path layers */
+  const setupBasemapPaths = useCallback((map: maplibregl.Map, color: string, visible: boolean) => {
+    const pathLayers = findBasemapPathLayers(map);
+    basemapPathLayersRef.current = pathLayers;
+    const vis = visible ? 'visible' : 'none';
+
+    for (const id of pathLayers) {
+      if (!map.getLayer(id)) continue;
+      const layer = map.getLayer(id);
+      map.setLayoutProperty(id, 'visibility', vis);
+      try {
+        if (layer?.type === 'line') {
+          map.setPaintProperty(id, 'line-color', color);
+          map.setPaintProperty(id, 'line-opacity', 1);
+          map.setPaintProperty(id, 'line-width', 2);
+        } else if (layer?.type === 'symbol') {
+          map.setPaintProperty(id, 'text-color', color);
+        }
+      } catch { /* skip */ }
+    }
   }, []);
 
   const setBasemapPathsVisibility = useCallback((map: maplibregl.Map, visible: boolean) => {
     const vis = visible ? 'visible' : 'none';
     for (const id of basemapPathLayersRef.current) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
+  }, []);
+
+  const colorBasemapPaths = useCallback((map: maplibregl.Map, color: string) => {
+    for (const id of basemapPathLayersRef.current) {
+      if (!map.getLayer(id)) continue;
+      const layer = map.getLayer(id);
+      try {
+        if (layer?.type === 'line') map.setPaintProperty(id, 'line-color', color);
+        else if (layer?.type === 'symbol') map.setPaintProperty(id, 'text-color', color);
+      } catch { /* skip */ }
     }
   }, []);
 
@@ -275,13 +303,9 @@ export default function MapContainer() {
     }
 
     hideBoundaryLayers(map);
-    discoverBasemapPaths(map);
-
-    // Apply current visibility from refs
-    if (!showTrailsRef.current) {
-      setBasemapPathsVisibility(map, false);
-    }
-  }, [hideBoundaryLayers, discoverBasemapPaths, setBasemapPathsVisibility]);
+    // Discover, color, and set visibility for basemap path layers
+    setupBasemapPaths(map, trailColorRef.current, showTrailsRef.current);
+  }, [hideBoundaryLayers, setupBasemapPaths]);
 
   // ── Data loading ──
 
@@ -397,7 +421,8 @@ export default function MapContainer() {
     if (map.getLayer('trail-lines')) {
       map.setPaintProperty('trail-lines', 'line-color', trailColor);
     }
-  }, [trailColor, mapLoaded]);
+    colorBasemapPaths(map, trailColor);
+  }, [trailColor, mapLoaded, colorBasemapPaths]);
 
   // ── Basemap switch ──
 
@@ -409,10 +434,11 @@ export default function MapContainer() {
 
     map.once('style.load', () => {
       addSourcesAndLayers(map);
-      // Re-apply current state from refs
+      // Re-apply current trail color to custom layers
       if (map.getLayer('trail-lines')) {
         map.setPaintProperty('trail-lines', 'line-color', trailColorRef.current);
       }
+      // Basemap paths already colored by setupBasemapPaths in addSourcesAndLayers
       if (showSatelliteRef.current && map.getLayer('satellite-layer')) {
         map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
       }
