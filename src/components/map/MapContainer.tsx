@@ -3,14 +3,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import mlcontour from 'maplibre-contour';
 import {
   BASEMAP_STYLES, DEFAULT_CENTER, DEFAULT_ZOOM,
   TRAIL_LINE_COLOR, TRAIL_DASH_PATTERN,
   PATH_LAYER_KEYWORDS, PATH_LAYER_EXCLUDE,
   HIGHWAY_LAYERS, HIGHWAY_COLOR, HIGHWAY_CASING_COLOR,
   MINOR_ROAD_LAYERS, MINOR_ROAD_COLOR, MINOR_ROAD_CASING_COLOR,
+  CONTOUR_CONFIG,
 } from '@/lib/maps/config';
-import { satelliteSource, satelliteLayer, contourSource, contourLayer } from '@/lib/maps/layers';
+import { satelliteSource, satelliteLayer, contourLineLayer, contourLabelLayer } from '@/lib/maps/layers';
 import type { BasemapStyle } from '@/types/map';
 import MapControls from './MapControls';
 import TrailSidebar from './TrailSidebar';
@@ -21,8 +23,36 @@ const HIDDEN_LAYERS = ['boundary_3', 'boundary_2', 'boundary_disputed'];
 // Our custom trail layer IDs
 const TRAIL_LAYER_IDS = ['trail-lines', 'trail-lines-casing'];
 
+// Contour layer IDs
+const CONTOUR_LAYER_IDS = ['contour-lines', 'contour-labels'];
+
 // Min zoom to start loading trail data
 const MIN_DATA_ZOOM = 3;
+
+// ── DEM source for contour lines (singleton, shared across style changes) ──
+let demSourceInstance: ReturnType<typeof mlcontour.DemSource.prototype.contourProtocolUrl> | null = null;
+let demSource: InstanceType<typeof mlcontour.DemSource> | null = null;
+
+function getDemSource() {
+  if (!demSource) {
+    demSource = new mlcontour.DemSource({
+      url: CONTOUR_CONFIG.demUrl,
+      encoding: CONTOUR_CONFIG.encoding,
+      maxzoom: CONTOUR_CONFIG.maxzoom,
+      worker: true,
+      cacheSize: 100,
+      timeoutMs: 10000,
+    });
+    demSource.setupMaplibre(maplibregl);
+  }
+  if (!demSourceInstance) {
+    demSourceInstance = demSource.contourProtocolUrl({
+      multiplier: CONTOUR_CONFIG.multiplier,
+      thresholds: CONTOUR_CONFIG.thresholds,
+    });
+  }
+  return demSourceInstance;
+}
 
 // ── helpers ──
 
@@ -167,7 +197,7 @@ export default function MapContainer() {
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const basemapPathLayersRef = useRef<string[]>([]);
 
-  // Refs for values needed in stable callbacks
+  // Refs for stable callbacks
   const showTrailsRef = useRef(true);
   const showSatelliteRef = useRef(false);
   const showContoursRef = useRef(false);
@@ -196,7 +226,7 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Style basemap path layers as dashed black (matching our trail style) */
+  /** Style basemap path layers as dashed black */
   const setupBasemapPaths = useCallback((map: maplibregl.Map, visible: boolean) => {
     const pathLayers = findBasemapPathLayers(map);
     basemapPathLayersRef.current = pathLayers;
@@ -219,7 +249,6 @@ export default function MapContainer() {
 
   /** Desaturate roads: highways → grey, minor roads → off-white */
   const desaturateRoads = useCallback((map: maplibregl.Map) => {
-    // Don't desaturate on dark mode — roads are already subdued
     if (basemapRef.current === 'dark') return;
 
     for (const id of HIGHWAY_LAYERS) {
@@ -238,32 +267,66 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Adjust dark mode for better contrast — not pitch-black, but distinct elements */
+  /** Make parks/greenery green on topo basemap */
+  const adjustTopoStyle = useCallback((map: maplibregl.Map) => {
+    const style = map.getStyle();
+    if (!style?.layers) return;
+    for (const layer of style.layers) {
+      try {
+        const id = layer.id.toLowerCase();
+        // Landcover layers (grass, forest, park)
+        if (layer.type === 'fill' && (id.includes('landcover') || id.includes('landuse'))) {
+          if (id.includes('grass') || id.includes('park') || id.includes('wood') || id.includes('forest') || id.includes('green')) {
+            map.setPaintProperty(layer.id, 'fill-color', '#c8e6c0');
+          } else if (id.includes('vegetation') || id.includes('scrub') || id.includes('meadow')) {
+            map.setPaintProperty(layer.id, 'fill-color', '#d4eacc');
+          }
+        }
+        // Some styles use generic landcover — try to green everything park-like
+        if (layer.type === 'fill' && id === 'landcover') {
+          map.setPaintProperty(layer.id, 'fill-color', [
+            'match', ['get', 'class'],
+            'grass', '#c8e6c0',
+            'wood', '#b8deb0',
+            'farmland', '#e8f0d8',
+            '#e0e0e0', // default fallback
+          ]);
+        }
+        if (layer.type === 'fill' && id === 'landuse') {
+          map.setPaintProperty(layer.id, 'fill-color', [
+            'match', ['get', 'class'],
+            'park', '#c8e6c0',
+            'cemetery', '#d4eacc',
+            'school', '#f0f0e0',
+            'hospital', '#f0e0e0',
+            '#e8e8e8', // default fallback
+          ]);
+        }
+      } catch { /* skip */ }
+    }
+  }, []);
+
+  /** Adjust dark mode for better contrast */
   const adjustDarkMode = useCallback((map: maplibregl.Map) => {
     const style = map.getStyle();
     if (!style?.layers) return;
     for (const layer of style.layers) {
       try {
-        // Dark navy background instead of pure black
         if (layer.id === 'background') {
           map.setPaintProperty('background', 'background-color', '#191c24');
         }
-        // Parks/green areas — dark teal so they're distinguishable
         if (layer.id.includes('landcover') && layer.type === 'fill') {
           map.setPaintProperty(layer.id, 'fill-color', '#1e2e28');
         }
         if (layer.id.includes('landuse') && layer.type === 'fill') {
           map.setPaintProperty(layer.id, 'fill-color', '#1c2a24');
         }
-        // Water — dark blue, clearly different from land
         if (layer.id.includes('water') && layer.type === 'fill') {
           map.setPaintProperty(layer.id, 'fill-color', '#14253a');
         }
-        // Buildings — slightly lighter than background
         if (layer.id.includes('building') && layer.type === 'fill') {
           map.setPaintProperty(layer.id, 'fill-color', '#252830');
         }
-        // Roads — more visible, with clear contrast between road types
         if ((layer.id.startsWith('road') || layer.id.startsWith('bridge') || layer.id.startsWith('tunnel')) && layer.type === 'line') {
           const isCasing = layer.id.includes('casing');
           const isHighway = layer.id.includes('motorway') || layer.id.includes('trunk');
@@ -273,7 +336,6 @@ export default function MapContainer() {
             map.setPaintProperty(layer.id, 'line-color', isCasing ? '#2e3040' : '#404558');
           }
         }
-        // Labels — bright enough to read against dark bg
         if (layer.type === 'symbol') {
           try {
             map.setPaintProperty(layer.id, 'text-color', '#d0d4e0');
@@ -307,19 +369,28 @@ export default function MapContainer() {
     if (!map.getSource('satellite')) {
       map.addSource('satellite', satelliteSource());
     }
-    if (!map.getSource('contours')) {
-      map.addSource('contours', contourSource());
+
+    // Contour DEM vector source
+    if (!map.getSource('contour-source')) {
+      const contourUrl = getDemSource();
+      map.addSource('contour-source', {
+        type: 'vector',
+        tiles: [contourUrl],
+      });
     }
 
     // Overlay layers (added early so trails render on top)
     if (!map.getLayer('satellite-layer')) {
       map.addLayer(satelliteLayer);
     }
-    if (!map.getLayer('contour-layer')) {
-      map.addLayer(contourLayer);
+    if (!map.getLayer('contour-lines')) {
+      map.addLayer(contourLineLayer);
+    }
+    if (!map.getLayer('contour-labels')) {
+      map.addLayer(contourLabelLayer);
     }
 
-    // Trail casing (subtle shadow) — visible from any zoom
+    // Trail casing — visible from any zoom
     if (!map.getLayer('trail-lines-casing')) {
       map.addLayer({
         id: 'trail-lines-casing',
@@ -328,8 +399,8 @@ export default function MapContainer() {
         layout: { 'line-join': 'round', 'line-cap': 'butt' },
         paint: {
           'line-color': '#000000',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.5, 6, 3, 10, 5, 14, 7, 18, 10],
-          'line-opacity': 0.15,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 2, 6, 3, 10, 5, 14, 7, 18, 10],
+          'line-opacity': 0.12,
         },
       });
     }
@@ -343,7 +414,7 @@ export default function MapContainer() {
         layout: { 'line-join': 'round', 'line-cap': 'butt' },
         paint: {
           'line-color': TRAIL_LINE_COLOR,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.8, 6, 1.5, 10, 3, 14, 5, 18, 7],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.2, 6, 2, 10, 3.5, 14, 5, 18, 7],
           'line-opacity': 1,
           'line-dasharray': TRAIL_DASH_PATTERN,
         },
@@ -379,23 +450,29 @@ export default function MapContainer() {
     setupBasemapPaths(map, showTrailsRef.current);
     desaturateRoads(map);
 
-    // Lighten dark mode
+    // Style adjustments per basemap
     if (basemapRef.current === 'dark') {
       adjustDarkMode(map);
+    } else if (basemapRef.current === 'topo') {
+      adjustTopoStyle(map);
     }
-  }, [hideBoundaryLayers, setupBasemapPaths, desaturateRoads, adjustDarkMode]);
+  }, [hideBoundaryLayers, setupBasemapPaths, desaturateRoads, adjustDarkMode, adjustTopoStyle]);
 
   // ── Data loading ──
 
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
-    if (map.getZoom() < MIN_DATA_ZOOM) return;
+    const zoom = map.getZoom();
+    if (zoom < MIN_DATA_ZOOM) return;
 
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
     try {
       const res = await fetch(`/api/trails/geojson?bbox=${bbox}`);
       if (!res.ok) return;
       const geojson = await res.json();
+
+      // Debug: log trail count at each load
+      console.log(`[ROAM] Loaded ${geojson.features?.length ?? 0} trails at z${zoom.toFixed(1)} | bbox: ${bbox}`);
 
       const source = map.getSource('trails') as maplibregl.GeoJSONSource;
       if (source) source.setData(geojson);
@@ -505,8 +582,10 @@ export default function MapContainer() {
       if (showSatelliteRef.current && map.getLayer('satellite-layer')) {
         map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
       }
-      if (showContoursRef.current && map.getLayer('contour-layer')) {
-        map.setLayoutProperty('contour-layer', 'visibility', 'visible');
+      if (showContoursRef.current) {
+        for (const id of CONTOUR_LAYER_IDS) {
+          if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+        }
       }
 
       loadTrailsForViewport(map);
@@ -531,7 +610,10 @@ export default function MapContainer() {
     setShowContours(visible);
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
-    map.setLayoutProperty('contour-layer', 'visibility', visible ? 'visible' : 'none');
+    const vis = visible ? 'visible' : 'none';
+    for (const id of CONTOUR_LAYER_IDS) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
   }, [mapLoaded]);
 
   const handleTrailToggle = useCallback((visible: boolean) => {

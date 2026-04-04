@@ -27,7 +27,7 @@ export const BASEMAP_STYLES: Record<BasemapStyle, { name: string; url: string; a
 };
 
 /**
- * Raster tile overlays (can be toggled on/off independently of basemap).
+ * Raster tile overlays.
  */
 export const OVERLAY_TILES = {
   satellite: {
@@ -36,12 +36,26 @@ export const OVERLAY_TILES = {
     attribution: '© USGS',
     maxZoom: 16,
   },
-  contours: {
-    name: 'Contours',
-    url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-    attribution: '© USGS National Map',
-    maxZoom: 16,
-  },
+};
+
+/**
+ * Elevation contour line settings (maplibre-contour).
+ * Uses AWS Terrain tiles (free, public domain, global coverage).
+ */
+export const CONTOUR_CONFIG = {
+  demUrl: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+  encoding: 'terrarium' as const,
+  maxzoom: 13,
+  /** Multiplier: 3.28084 converts meters → feet */
+  multiplier: 3.28084,
+  /** minor/major intervals per zoom level (in feet) */
+  thresholds: {
+    11: [200, 1000],
+    12: [100, 500],
+    13: [50, 200],
+    14: [40, 200],
+    15: [20, 100],
+  } as Record<number, [number, number]>,
 };
 
 /**
@@ -60,8 +74,8 @@ export const PATH_LAYER_KEYWORDS = ['path', 'pedestrian'];
 export const PATH_LAYER_EXCLUDE = ['service', 'track', 'landuse'];
 
 /**
- * Road layer groups for desaturation (applies on all vector basemaps).
- * Highways get a medium grey, minor/local roads get off-white.
+ * Road layer groups for desaturation.
+ * Highways → grey, minor roads → off-white.
  */
 export const HIGHWAY_LAYERS = [
   'road_motorway', 'road_motorway_casing', 'road_motorway_link', 'road_motorway_link_casing',
