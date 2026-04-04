@@ -46,15 +46,34 @@ export const OVERLAY_TILES = {
 };
 
 /**
- * Trail line styling by difficulty.
+ * Trail line styling by difficulty — bold, saturated colors.
  */
 export const TRAIL_COLORS: Record<string, string> = {
-  easy: '#22c55e',      // green
-  moderate: '#3b82f6',  // blue
-  hard: '#f59e0b',      // amber
-  expert: '#ef4444',    // red
-  unknown: '#8b5cf6',   // purple
+  easy: '#15803d',      // bold green
+  moderate: '#2563eb',  // bold blue
+  hard: '#d97706',      // bold amber
+  expert: '#dc2626',    // bold red
+  unknown: '#7c3aed',   // bold purple
 };
 
 export const DEFAULT_CENTER: [number, number] = [-98.5795, 39.8283]; // Center of US
 export const DEFAULT_ZOOM = 4;
+
+/**
+ * Basemap layers that render paths/trails — we toggle these
+ * alongside our custom trail layer so the user can fully hide trails.
+ */
+export const BASEMAP_PATH_LAYERS = [
+  'road_path_pedestrian',
+  'road_service_track',
+  'road_service_track_casing',
+  'tunnel_path_pedestrian',
+  'tunnel_service_track',
+  'tunnel_service_track_casing',
+  'bridge_path_pedestrian',
+  'bridge_path_pedestrian_casing',
+  'bridge_service_track',
+  'bridge_service_track_casing',
+  'highway-name-path',
+  'landuse_track',
+];
