@@ -20,6 +20,7 @@ const supabase = createClient(
 
 // US state bounding boxes (west, south, east, north)
 const STATE_BBOXES: Record<string, [number, number, number, number]> = {
+  PA: [-80.52, 39.72, -74.69, 42.27],
   CA: [-124.48, 32.53, -114.13, 42.01],
   CO: [-109.06, 36.99, -102.04, 41.00],
   WA: [-124.85, 45.54, -116.92, 49.00],
@@ -80,23 +81,105 @@ function mapDifficulty(tags: Record<string, string>): string | null {
 }
 
 /**
+ * Check if two points are close enough to be considered connected.
+ */
+function pointsClose(a: [number, number], b: [number, number], threshold = 0.0001): boolean {
+  return Math.abs(a[0] - b[0]) < threshold && Math.abs(a[1] - b[1]) < threshold;
+}
+
+/**
+ * Chain an array of line segments into connected sequences.
+ * Returns the longest connected chain. Segments are flipped if needed
+ * to connect end-to-start.
+ */
+function chainSegments(segments: [number, number][][]): [number, number][][] {
+  if (segments.length === 0) return [];
+  if (segments.length === 1) return [segments[0]];
+
+  const used = new Set<number>();
+  const chains: [number, number][][] = [];
+
+  while (used.size < segments.length) {
+    // Find first unused segment to start a new chain
+    let startIdx = -1;
+    for (let i = 0; i < segments.length; i++) {
+      if (!used.has(i)) { startIdx = i; break; }
+    }
+    if (startIdx === -1) break;
+
+    used.add(startIdx);
+    let chain = [...segments[startIdx]];
+
+    // Keep extending the chain by finding connected segments
+    let extended = true;
+    while (extended) {
+      extended = false;
+      for (let i = 0; i < segments.length; i++) {
+        if (used.has(i)) continue;
+        const seg = segments[i];
+        const chainEnd = chain[chain.length - 1];
+        const chainStart = chain[0];
+
+        // Try appending: chain end → segment start
+        if (pointsClose(chainEnd, seg[0])) {
+          chain.push(...seg.slice(1));
+          used.add(i);
+          extended = true;
+        }
+        // Try appending reversed: chain end → segment end
+        else if (pointsClose(chainEnd, seg[seg.length - 1])) {
+          chain.push(...[...seg].reverse().slice(1));
+          used.add(i);
+          extended = true;
+        }
+        // Try prepending: segment end → chain start
+        else if (pointsClose(seg[seg.length - 1], chainStart)) {
+          chain = [...seg.slice(0, -1), ...chain];
+          used.add(i);
+          extended = true;
+        }
+        // Try prepending reversed: segment start → chain start
+        else if (pointsClose(seg[0], chainStart)) {
+          chain = [...[...seg].reverse().slice(0, -1), ...chain];
+          used.add(i);
+          extended = true;
+        }
+      }
+    }
+
+    chains.push(chain);
+  }
+
+  return chains;
+}
+
+/**
  * Convert an Overpass element to a trail geometry (LineString coordinates).
+ * For relations, properly chains connected member segments and returns
+ * the longest connected chain (avoids criss-cross artifacts).
  */
 function extractGeometry(element: OverpassElement): [number, number][] | null {
+  // Simple way — just return its geometry
   if (element.geometry && element.geometry.length >= 2) {
     return element.geometry.map((p) => [p.lon, p.lat]);
   }
 
+  // Relation — extract each member as a separate segment, then chain them
   if (element.members) {
-    const coords: [number, number][] = [];
+    const segments: [number, number][][] = [];
     for (const member of element.members) {
-      if (member.geometry) {
-        for (const p of member.geometry) {
-          coords.push([p.lon, p.lat]);
-        }
+      if (member.geometry && member.geometry.length >= 2) {
+        segments.push(member.geometry.map((p) => [p.lon, p.lat]));
       }
     }
-    if (coords.length >= 2) return coords;
+    if (segments.length === 0) return null;
+
+    const chains = chainSegments(segments);
+    if (chains.length === 0) return null;
+
+    // Return the longest connected chain
+    const longest = chains.reduce((a, b) => a.length > b.length ? a : b);
+    if (longest.length >= 2) return longest;
   }
 
   return null;
