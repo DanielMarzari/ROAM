@@ -68,20 +68,13 @@ export const DEFAULT_CENTER: [number, number] = [-98.5795, 39.8283]; // Center o
 export const DEFAULT_ZOOM = 4;
 
 /**
- * Basemap layers that render paths/trails — we toggle these
- * alongside our custom trail layer so the user can fully hide trails.
+ * Keywords to identify basemap trail/path layers (NOT roads or service tracks).
+ * Used to dynamically find and restyle trail layers in any basemap style.
+ * "path" and "pedestrian" match hiking/walking paths across all OpenFreeMap styles.
  */
-export const BASEMAP_PATH_LAYERS = [
-  'road_path_pedestrian',
-  'road_service_track',
-  'road_service_track_casing',
-  'tunnel_path_pedestrian',
-  'tunnel_service_track',
-  'tunnel_service_track_casing',
-  'bridge_path_pedestrian',
-  'bridge_path_pedestrian_casing',
-  'bridge_service_track',
-  'bridge_service_track_casing',
-  'highway-name-path',
-  'landuse_track',
-];
+export const PATH_LAYER_KEYWORDS = ['path', 'pedestrian'];
+
+/**
+ * Keywords to EXCLUDE — these match road/service layers that should stay untouched.
+ */
+export const PATH_LAYER_EXCLUDE = ['service', 'track', 'landuse'];
