@@ -20,8 +20,9 @@ import TrailSidebar from './TrailSidebar';
 // Boundary / admin layers to hide
 const HIDDEN_LAYERS = ['boundary_3', 'boundary_2', 'boundary_disputed'];
 
-// Our custom trail layer IDs
+// Our custom trail layer IDs (hidden by default — only selected trail highlights)
 const TRAIL_LAYER_IDS = ['trail-lines', 'trail-lines-casing'];
+const SELECTED_TRAIL_LAYER_IDS = ['selected-trail-casing', 'selected-trail'];
 
 // Contour layer IDs
 const CONTOUR_LAYER_IDS = ['contour-lines', 'contour-labels'];
@@ -196,6 +197,8 @@ export default function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const basemapPathLayersRef = useRef<string[]>([]);
+  const trailGeoJsonRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  const selectedTrailIdRef = useRef<string | null>(null);
 
   // Refs for stable callbacks
   const showTrailsRef = useRef(true);
@@ -393,13 +396,13 @@ export default function MapContainer() {
       map.addLayer(contourLabelLayer);
     }
 
-    // Trail casing — visible from any zoom
+    // Trail casing — HIDDEN by default (all trails layer, too thick when doubled with basemap paths)
     if (!map.getLayer('trail-lines-casing')) {
       map.addLayer({
         id: 'trail-lines-casing',
         type: 'line',
         source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'butt' },
+        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'none' },
         paint: {
           'line-color': '#000000',
           'line-width': ['interpolate', ['linear'], ['zoom'], 3, 2, 6, 3, 10, 5, 14, 7, 18, 10],
@@ -408,13 +411,13 @@ export default function MapContainer() {
       });
     }
 
-    // Trail lines — dashed black, visible from any zoom
+    // Trail lines — HIDDEN by default (basemap paths provide the default trail rendering)
     if (!map.getLayer('trail-lines')) {
       map.addLayer({
         id: 'trail-lines',
         type: 'line',
         source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'butt' },
+        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'none' },
         paint: {
           'line-color': TRAIL_LINE_COLOR,
           'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.2, 6, 2, 10, 3.5, 14, 5, 18, 7],
@@ -424,7 +427,7 @@ export default function MapContainer() {
       });
     }
 
-    // Length labels
+    // Length labels — HIDDEN by default
     if (!map.getLayer('trail-length-labels')) {
       map.addLayer({
         id: 'trail-length-labels',
@@ -432,6 +435,7 @@ export default function MapContainer() {
         source: 'trail-labels',
         minzoom: 11,
         layout: {
+          visibility: 'none',
           'text-field': ['get', 'label'],
           'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 14, 13, 16, 15],
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
@@ -445,6 +449,41 @@ export default function MapContainer() {
           'text-halo-color': '#ffffff',
           'text-halo-width': 2,
           'text-halo-blur': 1,
+        },
+      });
+    }
+
+    // ── Selected trail highlight layers ──
+    if (!map.getSource('selected-trail')) {
+      map.addSource('selected-trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+
+    // Selected trail outer glow/casing
+    if (!map.getLayer('selected-trail-casing')) {
+      map.addLayer({
+        id: 'selected-trail-casing',
+        type: 'line',
+        source: 'selected-trail',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#065f46',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 6, 14, 10, 18, 14],
+          'line-opacity': 0.35,
+        },
+      });
+    }
+
+    // Selected trail solid line
+    if (!map.getLayer('selected-trail')) {
+      map.addLayer({
+        id: 'selected-trail',
+        type: 'line',
+        source: 'selected-trail',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#22c55e',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5, 18, 7],
+          'line-opacity': 1,
         },
       });
     }
@@ -485,12 +524,29 @@ export default function MapContainer() {
         console.warn('[ROAM] No trails returned — check if Supabase is reachable and has data for this bbox');
       }
 
+      // Store full GeoJSON for selection filtering
+      trailGeoJsonRef.current = geojson;
+
       const source = map.getSource('trails') as maplibregl.GeoJSONSource;
       if (source) source.setData(geojson);
 
       const labels = buildLengthLabels(geojson);
       const labelSource = map.getSource('trail-labels') as maplibregl.GeoJSONSource;
       if (labelSource) labelSource.setData(labels);
+
+      // If a trail is currently selected, keep it highlighted with the new data
+      if (selectedTrailIdRef.current) {
+        const selectedFeature = geojson.features?.find(
+          (f: GeoJSON.Feature) => f.properties?.id === selectedTrailIdRef.current
+        );
+        const selectedSource = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
+        if (selectedSource) {
+          selectedSource.setData(selectedFeature
+            ? { type: 'FeatureCollection', features: [selectedFeature] }
+            : { type: 'FeatureCollection', features: [] }
+          );
+        }
+      }
 
       setTrailGroups(extractTrailGroups(geojson));
     } catch (err) {
@@ -533,26 +589,62 @@ export default function MapContainer() {
     map.on('load', () => {
       addSourcesAndLayers(map);
 
-      // Trail click popup
-      map.on('click', 'trail-lines', (e) => {
-        if (!e.features?.length) return;
-        const props = e.features[0].properties;
-        new maplibregl.Popup({ offset: 10, maxWidth: '260px' })
-          .setLngLat(e.lngLat)
-          .setHTML(`
-            <div style="font-family:system-ui;">
-              <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;">${props.name || 'Unnamed Trail'}</h3>
-              <div style="display:flex;gap:8px;font-size:12px;color:#666;flex-wrap:wrap;">
-                ${props.difficulty ? `<span style="font-weight:600;text-transform:capitalize;">${props.difficulty}</span>` : ''}
-                ${props.length_miles ? `<span>${props.length_miles} mi</span>` : ''}
-                ${props.elevation_gain_ft ? `<span>${props.elevation_gain_ft} ft gain</span>` : ''}
-              </div>
-            </div>
-          `)
-          .addTo(map);
+      // Click on basemap path layers → find nearest trail from data and highlight it
+      map.on('click', (e) => {
+        // Check if we clicked on the selected-trail highlight layer
+        const selectedFeats = map.queryRenderedFeatures(e.point, { layers: ['selected-trail'] });
+        // Check if we clicked on a basemap path
+        const pathLayers = basemapPathLayersRef.current.filter(id => map.getLayer(id));
+        const pathFeats = pathLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: pathLayers }) : [];
+
+        if (selectedFeats.length > 0 || pathFeats.length > 0) {
+          // Find nearest trail from our data
+          const features = trailGeoJsonRef.current.features || [];
+          if (features.length === 0) return;
+
+          let nearest: GeoJSON.Feature | null = null;
+          let nearestDist = Infinity;
+          const clickPt = e.lngLat;
+
+          for (const f of features) {
+            const geom = f.geometry;
+            let coords: number[][] = [];
+            if (geom.type === 'LineString') coords = geom.coordinates as number[][];
+            else if (geom.type === 'MultiLineString') {
+              for (const seg of geom.coordinates as number[][][]) coords.push(...seg);
+            }
+            for (const c of coords) {
+              const d = Math.sqrt((c[0] - clickPt.lng) ** 2 + (c[1] - clickPt.lat) ** 2);
+              if (d < nearestDist) { nearestDist = d; nearest = f; }
+            }
+          }
+
+          if (nearest && nearest.properties) {
+            selectedTrailIdRef.current = nearest.properties.id || null;
+            const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
+            if (src) src.setData({ type: 'FeatureCollection', features: [nearest] });
+
+            new maplibregl.Popup({ offset: 10, maxWidth: '260px' })
+              .setLngLat(e.lngLat)
+              .setHTML(`
+                <div style="font-family:system-ui;">
+                  <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;">${nearest.properties.name || 'Unnamed Trail'}</h3>
+                  <div style="display:flex;gap:8px;font-size:12px;color:#666;flex-wrap:wrap;">
+                    ${nearest.properties.difficulty ? `<span style="font-weight:600;text-transform:capitalize;">${nearest.properties.difficulty}</span>` : ''}
+                    ${nearest.properties.length_miles ? `<span>${nearest.properties.length_miles} mi</span>` : ''}
+                    ${nearest.properties.elevation_gain_ft ? `<span>${nearest.properties.elevation_gain_ft} ft gain</span>` : ''}
+                  </div>
+                </div>
+              `)
+              .addTo(map);
+          }
+        } else {
+          // Clicked elsewhere — deselect
+          selectedTrailIdRef.current = null;
+          const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
+          if (src) src.setData({ type: 'FeatureCollection', features: [] });
+        }
       });
-      map.on('mouseenter', 'trail-lines', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'trail-lines', () => { map.getCanvas().style.cursor = ''; });
 
       setMapLoaded(true);
 
@@ -632,10 +724,12 @@ export default function MapContainer() {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
     const vis = visible ? 'visible' : 'none';
-    for (const id of [...TRAIL_LAYER_IDS, 'trail-length-labels']) {
+    // Basemap paths toggle
+    setBasemapPathsVisibility(map, visible);
+    // Selected trail highlight toggle
+    for (const id of SELECTED_TRAIL_LAYER_IDS) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
     }
-    setBasemapPathsVisibility(map, visible);
   }, [mapLoaded, setBasemapPathsVisibility]);
 
   // ── Sidebar ──
@@ -643,6 +737,20 @@ export default function MapContainer() {
   const handleTrailSelect = useCallback((trail: TrailItem) => {
     const map = mapRef.current;
     if (!map || !trail.center) return;
+
+    // Highlight this trail on the map
+    selectedTrailIdRef.current = trail.id;
+    const feature = trailGeoJsonRef.current.features?.find(
+      (f: GeoJSON.Feature) => f.properties?.id === trail.id
+    );
+    const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
+    if (src) {
+      src.setData(feature
+        ? { type: 'FeatureCollection', features: [feature] }
+        : { type: 'FeatureCollection', features: [] }
+      );
+    }
+
     map.flyTo({ center: trail.center, zoom: 15, speed: 1.2 });
   }, []);
 
