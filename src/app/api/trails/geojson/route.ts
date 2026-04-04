@@ -111,6 +111,13 @@ export async function GET(request: NextRequest) {
           return isTrail(name);
         }
       );
+
+      // Sort longest trails first so the 2000-result limit prioritizes
+      // major trails over short connector segments at zoomed-out levels
+      geojson.features.sort(
+        (a: { properties: Record<string, unknown> }, b: { properties: Record<string, unknown> }) =>
+          ((b.properties?.length_miles as number) ?? 0) - ((a.properties?.length_miles as number) ?? 0)
+      );
     }
 
     return NextResponse.json(geojson, {

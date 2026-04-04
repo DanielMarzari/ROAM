@@ -198,6 +198,7 @@ export default function MapContainer() {
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const basemapPathLayersRef = useRef<string[]>([]);
   const trailGeoJsonRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  const trailCacheRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
   const selectedTrailIdRef = useRef<string | null>(null);
 
   // Refs for stable callbacks
@@ -518,26 +519,36 @@ export default function MapContainer() {
         console.error(`[ROAM] API error: ${geojson._error}`);
       }
 
-      // Debug: log trail count at each load
-      const count = geojson.features?.length ?? 0;
-      console.log(`[ROAM] Loaded ${count} trails at z${zoom.toFixed(1)} | bbox: ${bbox} | status: ${res.status}`);
-      if (count === 0 && !geojson._error) {
-        console.warn('[ROAM] No trails returned — check if Supabase is reachable and has data for this bbox');
+      const newCount = geojson.features?.length ?? 0;
+
+      // ── Accumulate trails: merge new features into cache by ID ──
+      const cache = trailCacheRef.current;
+      for (const feature of (geojson.features || [])) {
+        const id = feature.properties?.id;
+        if (id) cache.set(id, feature);
       }
 
-      // Store full GeoJSON for selection filtering
-      trailGeoJsonRef.current = geojson;
+      // Build accumulated GeoJSON from the full cache
+      const accumulated: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: Array.from(cache.values()),
+      };
+
+      console.log(`[ROAM] Fetched ${newCount} trails at z${zoom.toFixed(1)} | total cached: ${cache.size} | status: ${res.status}`);
+
+      // Store full accumulated GeoJSON for selection filtering
+      trailGeoJsonRef.current = accumulated;
 
       const source = map.getSource('trails') as maplibregl.GeoJSONSource;
-      if (source) source.setData(geojson);
+      if (source) source.setData(accumulated);
 
-      const labels = buildLengthLabels(geojson);
+      const labels = buildLengthLabels(accumulated);
       const labelSource = map.getSource('trail-labels') as maplibregl.GeoJSONSource;
       if (labelSource) labelSource.setData(labels);
 
-      // If a trail is currently selected, keep it highlighted with the new data
+      // If a trail is currently selected, keep it highlighted
       if (selectedTrailIdRef.current) {
-        const selectedFeature = geojson.features?.find(
+        const selectedFeature = accumulated.features?.find(
           (f: GeoJSON.Feature) => f.properties?.id === selectedTrailIdRef.current
         );
         const selectedSource = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
@@ -549,7 +560,7 @@ export default function MapContainer() {
         }
       }
 
-      setTrailGroups(extractTrailGroups(geojson));
+      setTrailGroups(extractTrailGroups(accumulated));
     } catch (err) {
       console.error('Failed to load trails:', err);
     }
