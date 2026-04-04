@@ -180,6 +180,7 @@ export default function MapContainer() {
   const [showContours, setShowContours] = useState(false);
   const [trailGroups, setTrailGroups] = useState<TrailGroup[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM);
 
   // Keep refs in sync
   useEffect(() => { showTrailsRef.current = showTrails; }, [showTrails]);
@@ -237,37 +238,48 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Lighten dark mode so it's not pitch-black */
+  /** Adjust dark mode for better contrast — not pitch-black, but distinct elements */
   const adjustDarkMode = useCallback((map: maplibregl.Map) => {
     const style = map.getStyle();
     if (!style?.layers) return;
     for (const layer of style.layers) {
       try {
+        // Dark navy background instead of pure black
         if (layer.id === 'background') {
-          map.setPaintProperty('background', 'background-color', '#1e1e2a');
+          map.setPaintProperty('background', 'background-color', '#191c24');
         }
-        // Lighten land / landcover layers
-        if (layer.id.includes('landcover') || layer.id.includes('landuse')) {
-          if (layer.type === 'fill') {
-            map.setPaintProperty(layer.id, 'fill-color', '#262632');
-          }
+        // Parks/green areas — dark teal so they're distinguishable
+        if (layer.id.includes('landcover') && layer.type === 'fill') {
+          map.setPaintProperty(layer.id, 'fill-color', '#1e2e28');
         }
-        // Slightly lighten water
+        if (layer.id.includes('landuse') && layer.type === 'fill') {
+          map.setPaintProperty(layer.id, 'fill-color', '#1c2a24');
+        }
+        // Water — dark blue, clearly different from land
         if (layer.id.includes('water') && layer.type === 'fill') {
-          map.setPaintProperty(layer.id, 'fill-color', '#1a2535');
+          map.setPaintProperty(layer.id, 'fill-color', '#14253a');
         }
-        // Make building fills a bit lighter
+        // Buildings — slightly lighter than background
         if (layer.id.includes('building') && layer.type === 'fill') {
-          map.setPaintProperty(layer.id, 'fill-color', '#2a2a38');
+          map.setPaintProperty(layer.id, 'fill-color', '#252830');
         }
-        // Lighten road lines in dark mode
+        // Roads — more visible, with clear contrast between road types
         if ((layer.id.startsWith('road') || layer.id.startsWith('bridge') || layer.id.startsWith('tunnel')) && layer.type === 'line') {
           const isCasing = layer.id.includes('casing');
-          map.setPaintProperty(layer.id, 'line-color', isCasing ? '#3a3a48' : '#454558');
+          const isHighway = layer.id.includes('motorway') || layer.id.includes('trunk');
+          if (isHighway) {
+            map.setPaintProperty(layer.id, 'line-color', isCasing ? '#3a3e4a' : '#555e70');
+          } else {
+            map.setPaintProperty(layer.id, 'line-color', isCasing ? '#2e3040' : '#404558');
+          }
         }
-        // Make labels more readable
+        // Labels — bright enough to read against dark bg
         if (layer.type === 'symbol') {
-          try { map.setPaintProperty(layer.id, 'text-color', '#c8c8d8'); } catch { /* skip */ }
+          try {
+            map.setPaintProperty(layer.id, 'text-color', '#d0d4e0');
+            map.setPaintProperty(layer.id, 'text-halo-color', '#191c24');
+            map.setPaintProperty(layer.id, 'text-halo-width', 1.5);
+          } catch { /* skip */ }
         }
       } catch { /* skip */ }
     }
@@ -472,6 +484,7 @@ export default function MapContainer() {
     });
 
     map.on('moveend', () => loadTrailsForViewport(map));
+    map.on('zoom', () => setZoomLevel(Math.round(map.getZoom() * 10) / 10));
 
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -607,6 +620,26 @@ export default function MapContainer() {
             onZoomOut={handleZoomOut}
             onLocate={handleLocate}
           />
+        )}
+
+        {/* Zoom level debug indicator */}
+        {mapLoaded && (
+          <div style={{
+            position: 'absolute',
+            bottom: 36,
+            right: 12,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            color: '#fff',
+            padding: '4px 10px',
+            borderRadius: 6,
+            fontSize: 12,
+            fontFamily: 'monospace',
+            fontWeight: 600,
+            zIndex: 10,
+            pointerEvents: 'none',
+          }}>
+            z{zoomLevel}
+          </div>
         )}
 
         {!mapLoaded && (

@@ -9,6 +9,11 @@ export const BASEMAP_STYLES: Record<BasemapStyle, { name: string; url: string; a
     url: 'https://tiles.openfreemap.org/styles/liberty',
     attribution: '© <a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   },
+  topo: {
+    name: 'Topo',
+    url: 'https://tiles.openfreemap.org/styles/positron',
+    attribution: '© <a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  },
   light: {
     name: 'Light',
     url: 'https://tiles.openfreemap.org/styles/bright',
@@ -33,9 +38,9 @@ export const OVERLAY_TILES = {
   },
   contours: {
     name: 'Contours',
-    url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
-    attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
-    maxZoom: 17,
+    url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© USGS National Map',
+    maxZoom: 16,
   },
 };
 
@@ -77,12 +82,3 @@ export const MINOR_ROAD_LAYERS = [
 ];
 export const MINOR_ROAD_COLOR = '#e8e8e8';
 export const MINOR_ROAD_CASING_COLOR = '#dcdcdc';
-
-/**
- * Dark-mode layer IDs whose colors we lighten so the map isn't pitch-black.
- */
-export const DARK_MODE_TWEAKS = {
-  backgroundTarget: '#1e1e2a',
-  waterTarget: '#1a2535',
-  landBrighten: 0.15, // amount to lighten land layers
-};

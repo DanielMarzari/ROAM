@@ -26,7 +26,7 @@ export const satelliteLayer: LayerSpecification = {
 };
 
 /**
- * Contour/topo raster source (OpenTopoMap).
+ * Contour/topo raster source (USGS National Map Topo).
  */
 export function contourSource(): SourceSpecification {
   return {
@@ -39,12 +39,12 @@ export function contourSource(): SourceSpecification {
 }
 
 /**
- * Contour/topo raster layer (hidden by default, semi-transparent).
+ * Contour/topo raster layer (hidden by default, semi-transparent overlay).
  */
 export const contourLayer: LayerSpecification = {
   id: 'contour-layer',
   type: 'raster',
   source: 'contours',
   layout: { visibility: 'none' },
-  paint: { 'raster-opacity': 0.35 },
+  paint: { 'raster-opacity': 0.4 },
 };

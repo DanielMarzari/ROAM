@@ -1,4 +1,4 @@
-export type BasemapStyle = 'outdoor' | 'light' | 'dark';
+export type BasemapStyle = 'outdoor' | 'light' | 'dark' | 'topo';
 
 export interface MapViewport {
   center: [number, number]; // [lng, lat]
@@ -32,5 +32,9 @@ export const BASEMAP_STYLES: Record<BasemapStyle, { name: string; url: string }>
   dark: {
     name: 'Dark',
     url: 'https://tiles.openfreemap.org/styles/dark',
+  },
+  topo: {
+    name: 'Topo',
+    url: 'https://tiles.openfreemap.org/styles/positron',
   },
 };

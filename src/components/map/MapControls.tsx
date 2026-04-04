@@ -19,13 +19,14 @@ interface MapControlsProps {
 
 const BASEMAP_OPTIONS: { value: BasemapStyle; label: string }[] = [
   { value: 'outdoor', label: 'Outdoor' },
+  { value: 'topo', label: 'Topo' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
 ];
 
 const btnBase: React.CSSProperties = {
-  width: 40,
-  height: 40,
+  width: 48,
+  height: 48,
   borderRadius: '50%',
   backgroundColor: '#fff',
   border: '1px solid #e7e5e4',
@@ -33,7 +34,7 @@ const btnBase: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
   transition: 'background-color 0.15s, box-shadow 0.15s',
   padding: 0,
   color: '#57534e',
@@ -82,7 +83,7 @@ export default function MapControls({
             if (!layersOpen) e.currentTarget.style.backgroundColor = '#fff';
           }}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2" />
             <polyline points="2 17 12 22 22 17" />
             <polyline points="2 12 12 17 22 12" />
@@ -94,12 +95,12 @@ export default function MapControls({
           <div style={{
             position: 'absolute',
             top: 0,
-            right: 52,
+            right: 58,
             backgroundColor: '#fff',
             borderRadius: 12,
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             padding: 16,
-            width: 200,
+            width: 210,
             fontFamily: 'system-ui',
           }}>
             {/* Basemap selection */}
@@ -110,13 +111,12 @@ export default function MapControls({
             }}>
               Base Map
             </p>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 14 }}>
               {BASEMAP_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => onBasemapChange(opt.value)}
                   style={{
-                    flex: 1,
                     fontSize: 12,
                     padding: '7px 0',
                     borderRadius: 8,
@@ -190,7 +190,7 @@ export default function MapControls({
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f5f5f4'; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fff'; }}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
@@ -204,7 +204,7 @@ export default function MapControls({
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f5f5f4'; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fff'; }}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
       </button>
@@ -220,7 +220,7 @@ export default function MapControls({
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f5f5f4'; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fff'; }}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="3 11 22 2 13 21 11 13 3 11" />
         </svg>
       </button>
