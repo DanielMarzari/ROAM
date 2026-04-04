@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       bbox_south: south,
       bbox_east: east,
       bbox_north: north,
-      max_results: 500,
+      max_results: 2000,
     });
 
     if (error) {
