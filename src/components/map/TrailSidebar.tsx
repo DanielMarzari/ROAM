@@ -1,22 +1,43 @@
 'use client';
 
 import { useState } from 'react';
-import type { TrailItem } from './MapContainer';
+import type { TrailItem, TrailGroup } from './MapContainer';
 
 interface TrailSidebarProps {
-  trails: TrailItem[];
+  groups: TrailGroup[];
   open: boolean;
   onToggle: () => void;
-  onSelect: (trail: TrailItem) => void;
+  onTrailSelect: (trail: TrailItem) => void;
+  onGroupSelect: (group: TrailGroup) => void;
   trailColor: string;
 }
 
-export default function TrailSidebar({ trails, open, onToggle, onSelect, trailColor }: TrailSidebarProps) {
+export default function TrailSidebar({ groups, open, onToggle, onTrailSelect, onGroupSelect, trailColor }: TrailSidebarProps) {
   const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const filtered = trails.filter((t) =>
-    t.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const toggleGroup = (name: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  // Filter groups and trails by search
+  const filteredGroups = groups.map((g) => {
+    if (!search) return g;
+    const q = search.toLowerCase();
+    // Match group name or individual trail names
+    const matchedTrails = g.trails.filter(
+      (t) => t.name.toLowerCase().includes(q) || g.name.toLowerCase().includes(q)
+    );
+    if (matchedTrails.length === 0) return null;
+    return { ...g, trails: matchedTrails, trailCount: matchedTrails.length };
+  }).filter(Boolean) as TrailGroup[];
+
+  const totalTrails = filteredGroups.reduce((sum, g) => sum + g.trailCount, 0);
 
   return (
     <>
@@ -45,7 +66,7 @@ export default function TrailSidebar({ trails, open, onToggle, onSelect, trailCo
               Trails
             </h2>
             <span style={{ fontSize: 12, color: '#78716c', fontFamily: 'system-ui' }}>
-              {filtered.length} in view
+              {totalTrails} in view
             </span>
           </div>
 
@@ -80,87 +101,150 @@ export default function TrailSidebar({ trails, open, onToggle, onSelect, trailCo
           </div>
         </div>
 
-        {/* Trail list */}
+        {/* Trail groups */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
-          {filtered.length === 0 && (
+          {filteredGroups.length === 0 && (
             <div style={{ padding: '32px 16px', textAlign: 'center', color: '#a8a29e', fontSize: 13, fontFamily: 'system-ui' }}>
-              {trails.length === 0 ? 'Zoom in to see trails' : 'No trails match your search'}
+              {groups.length === 0 ? 'Zoom in to see trails' : 'No trails match your search'}
             </div>
           )}
 
-          {filtered.map((trail) => (
-            <button
-              key={trail.id}
-              onClick={() => onSelect(trail)}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '10px 16px',
-                border: 'none',
-                borderBottom: '1px solid #f5f5f4',
-                backgroundColor: 'transparent',
-                cursor: 'pointer',
-                fontFamily: 'system-ui',
-                transition: 'background-color 0.15s',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f5f5f4'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-            >
-              {/* Trail name with colored dot */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  backgroundColor: trailColor,
-                  marginTop: 5, flexShrink: 0,
-                }} />
-                <div style={{ minWidth: 0 }}>
+          {filteredGroups.map((group) => {
+            const isExpanded = expanded.has(group.name);
+
+            return (
+              <div key={group.name} style={{ borderBottom: '1px solid #e7e5e4' }}>
+                {/* Group header */}
+                <button
+                  onClick={() => toggleGroup(group.name)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    width: '100%',
+                    padding: '10px 16px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    cursor: 'pointer',
+                    fontFamily: 'system-ui',
+                    gap: 8,
+                    transition: 'background-color 0.15s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f5f5f4'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  {/* Expand arrow */}
+                  <svg
+                    width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="#78716c" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s', flexShrink: 0 }}
+                  >
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+
+                  {/* Color dot */}
                   <div style={{
-                    fontSize: 13, fontWeight: 600, color: '#1c1917',
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    maxWidth: 250,
-                  }}>
-                    {trail.name}
+                    width: 10, height: 10, borderRadius: '50%',
+                    backgroundColor: trailColor,
+                    flexShrink: 0,
+                  }} />
+
+                  {/* Group info */}
+                  <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 700, color: '#1c1917',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                      {group.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#78716c', marginTop: 1 }}>
+                      {group.trailCount} trail{group.trailCount !== 1 ? 's' : ''} · {group.totalMiles} mi total
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
-                    {trail.length_miles && (
-                      <span style={{ fontSize: 11, color: '#78716c' }}>
-                        {trail.length_miles} mi
-                      </span>
-                    )}
-                    {trail.difficulty && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 600,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        color: trail.difficulty === 'easy' ? '#16a34a'
-                          : trail.difficulty === 'moderate' ? '#2563eb'
-                          : trail.difficulty === 'hard' ? '#d97706'
-                          : trail.difficulty === 'expert' ? '#dc2626'
-                          : '#78716c',
-                      }}>
-                        {trail.difficulty}
-                      </span>
-                    )}
-                    {trail.elevation_gain_ft && (
-                      <span style={{ fontSize: 11, color: '#78716c' }}>
-                        {trail.elevation_gain_ft} ft
-                      </span>
-                    )}
-                    {trail.route_type && (
-                      <span style={{ fontSize: 11, color: '#a8a29e', textTransform: 'capitalize' }}>
-                        {trail.route_type.replace('_', ' ')}
-                      </span>
-                    )}
+
+                  {/* Fly-to button */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onGroupSelect(group); }}
+                    title="Fly to area"
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                      color: '#a8a29e', flexShrink: 0,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = '#16a34a'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = '#a8a29e'; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                </button>
+
+                {/* Expanded trail list */}
+                {isExpanded && (
+                  <div style={{ backgroundColor: '#f5f5f4' }}>
+                    {group.trails.map((trail) => (
+                      <button
+                        key={trail.id}
+                        onClick={() => onTrailSelect(trail)}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '8px 16px 8px 46px',
+                          border: 'none',
+                          borderTop: '1px solid #eeeceb',
+                          backgroundColor: 'transparent',
+                          cursor: 'pointer',
+                          fontFamily: 'system-ui',
+                          transition: 'background-color 0.15s',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#eeecea'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      >
+                        <div style={{
+                          fontSize: 12, fontWeight: 500, color: '#292524',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                          maxWidth: 230,
+                        }}>
+                          {trail.name}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                          {trail.length_miles != null && (
+                            <span style={{ fontSize: 10, color: '#78716c' }}>
+                              {trail.length_miles} mi
+                            </span>
+                          )}
+                          {trail.difficulty && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              color: trail.difficulty === 'easy' ? '#16a34a'
+                                : trail.difficulty === 'moderate' ? '#2563eb'
+                                : trail.difficulty === 'hard' ? '#d97706'
+                                : trail.difficulty === 'expert' ? '#dc2626'
+                                : '#78716c',
+                            }}>
+                              {trail.difficulty}
+                            </span>
+                          )}
+                          {trail.elevation_gain_ft != null && (
+                            <span style={{ fontSize: 10, color: '#78716c' }}>
+                              {trail.elevation_gain_ft} ft
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </div>
+                )}
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {/* Toggle button (always visible, on the edge) */}
+      {/* Toggle button */}
       <button
         onClick={onToggle}
         style={{

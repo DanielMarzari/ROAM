@@ -15,20 +15,20 @@ const HIDDEN_LAYERS = ['boundary_3', 'boundary_2', 'boundary_disputed'];
 // Our custom trail layer IDs
 const TRAIL_LAYER_IDS = ['trail-lines', 'trail-lines-casing'];
 
+// Min zoom to start loading trail data (lowered from 5 → 3)
+const MIN_DATA_ZOOM = 3;
+
 // ── helpers ──
 
 /** Dynamically find basemap layers that are paths/trails (not roads/service tracks) */
 function findBasemapPathLayers(map: maplibregl.Map): string[] {
   const style = map.getStyle();
   if (!style?.layers) return [];
-
   return style.layers
     .filter((layer) => {
       const id = layer.id.toLowerCase();
-      // Must match at least one path keyword
       const isPath = PATH_LAYER_KEYWORDS.some((kw) => id.includes(kw));
       if (!isPath) return false;
-      // Must NOT match any exclude keyword
       const isExcluded = PATH_LAYER_EXCLUDE.some((kw) => id.includes(kw));
       return !isExcluded;
     })
@@ -74,9 +74,7 @@ function buildLengthLabels(geojson: GeoJSON.FeatureCollection): GeoJSON.FeatureC
     } else if (geom.type === 'MultiLineString') {
       const segments = geom.coordinates as number[][][];
       let longest: number[][] = [];
-      for (const seg of segments) {
-        if (seg.length > longest.length) longest = seg;
-      }
+      for (const seg of segments) if (seg.length > longest.length) longest = seg;
       coords = longest;
     }
     const mid = coords ? midpoint(coords) : null;
@@ -90,7 +88,7 @@ function buildLengthLabels(geojson: GeoJSON.FeatureCollection): GeoJSON.FeatureC
   return { type: 'FeatureCollection', features };
 }
 
-// ── Trail type for sidebar ──
+// ── Trail types for sidebar ──
 export interface TrailItem {
   id: string;
   name: string;
@@ -98,12 +96,22 @@ export interface TrailItem {
   length_miles: number | null;
   elevation_gain_ft: number | null;
   route_type: string | null;
+  region: string | null;
   center: [number, number] | null;
 }
 
-/** Extract trail list from GeoJSON for the sidebar */
-function extractTrailList(geojson: GeoJSON.FeatureCollection): TrailItem[] {
-  const trails: TrailItem[] = [];
+export interface TrailGroup {
+  name: string;
+  trailCount: number;
+  totalMiles: number;
+  trails: TrailItem[];
+  center: [number, number] | null;
+}
+
+/** Extract trail list from GeoJSON, grouped by region */
+function extractTrailGroups(geojson: GeoJSON.FeatureCollection): TrailGroup[] {
+  const regionMap = new Map<string, TrailItem[]>();
+
   for (const f of geojson.features) {
     const p = f.properties || {};
     let center: [number, number] | null = null;
@@ -116,19 +124,37 @@ function extractTrailList(geojson: GeoJSON.FeatureCollection): TrailItem[] {
       for (const seg of segs) if (seg.length > longest.length) longest = seg;
       center = midpoint(longest);
     }
-    trails.push({
+
+    const trail: TrailItem = {
       id: p.id || f.id?.toString() || '',
       name: p.name || 'Unnamed Trail',
       difficulty: p.difficulty || null,
       length_miles: p.length_miles || null,
       elevation_gain_ft: p.elevation_gain_ft || null,
       route_type: p.route_type || null,
+      region: p.region || null,
       center,
-    });
+    };
+
+    const key = trail.region || 'Other Trails';
+    if (!regionMap.has(key)) regionMap.set(key, []);
+    regionMap.get(key)!.push(trail);
   }
-  // Sort by length descending
-  trails.sort((a, b) => (b.length_miles || 0) - (a.length_miles || 0));
-  return trails;
+
+  // Build groups
+  const groups: TrailGroup[] = [];
+  for (const [name, trails] of regionMap) {
+    // Sort trails within group by length desc
+    trails.sort((a, b) => (b.length_miles || 0) - (a.length_miles || 0));
+    const totalMiles = trails.reduce((sum, t) => sum + (t.length_miles || 0), 0);
+    // Group center = midpoint of the longest trail
+    const center = trails[0]?.center || null;
+    groups.push({ name, trailCount: trails.length, totalMiles: Math.round(totalMiles * 10) / 10, trails, center });
+  }
+
+  // Sort groups by total mileage desc
+  groups.sort((a, b) => b.totalMiles - a.totalMiles);
+  return groups;
 }
 
 // ── Component ──
@@ -138,15 +164,26 @@ export default function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const basemapPathLayersRef = useRef<string[]>([]);
+
+  // Use refs for values needed in stable callbacks (no re-init on change)
+  const trailColorRef = useRef(DEFAULT_TRAIL_COLOR);
+  const showTrailsRef = useRef(true);
+  const showSatelliteRef = useRef(false);
+
   const [mapLoaded, setMapLoaded] = useState(false);
   const [basemap, setBasemap] = useState<BasemapStyle>('outdoor');
   const [showSatellite, setShowSatellite] = useState(false);
   const [showTrails, setShowTrails] = useState(true);
   const [trailColor, setTrailColor] = useState(DEFAULT_TRAIL_COLOR);
-  const [trails, setTrails] = useState<TrailItem[]>([]);
+  const [trailGroups, setTrailGroups] = useState<TrailGroup[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // ── Basemap path helpers (use dynamic detection) ──
+  // Keep refs in sync with state
+  useEffect(() => { trailColorRef.current = trailColor; }, [trailColor]);
+  useEffect(() => { showTrailsRef.current = showTrails; }, [showTrails]);
+  useEffect(() => { showSatelliteRef.current = showSatellite; }, [showSatellite]);
+
+  // ── Basemap path helpers ──
 
   const hideBoundaryLayers = useCallback((map: maplibregl.Map) => {
     for (const id of HIDDEN_LAYERS) {
@@ -154,52 +191,19 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Discover, cache, and style basemap path layers */
-  const setupBasemapPaths = useCallback((map: maplibregl.Map, color: string, visible: boolean) => {
-    const pathLayers = findBasemapPathLayers(map);
-    basemapPathLayersRef.current = pathLayers;
-
-    for (const id of pathLayers) {
-      if (!map.getLayer(id)) continue;
-      const layer = map.getLayer(id);
-      // Set visibility
-      map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
-      // Set color
-      try {
-        if (layer?.type === 'line') {
-          map.setPaintProperty(id, 'line-color', color);
-          map.setPaintProperty(id, 'line-opacity', 1);
-          map.setPaintProperty(id, 'line-width', 2.5);
-        } else if (layer?.type === 'symbol') {
-          map.setPaintProperty(id, 'text-color', color);
-        }
-      } catch {
-        // some layers may not support paint changes
-      }
-    }
+  /** Discover and cache basemap path layers (toggle only, no coloring) */
+  const discoverBasemapPaths = useCallback((map: maplibregl.Map) => {
+    basemapPathLayersRef.current = findBasemapPathLayers(map);
   }, []);
 
   const setBasemapPathsVisibility = useCallback((map: maplibregl.Map, visible: boolean) => {
+    const vis = visible ? 'visible' : 'none';
     for (const id of basemapPathLayersRef.current) {
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
     }
   }, []);
 
-  const colorBasemapPaths = useCallback((map: maplibregl.Map, color: string) => {
-    for (const id of basemapPathLayersRef.current) {
-      if (!map.getLayer(id)) continue;
-      const layer = map.getLayer(id);
-      try {
-        if (layer?.type === 'line') {
-          map.setPaintProperty(id, 'line-color', color);
-        } else if (layer?.type === 'symbol') {
-          map.setPaintProperty(id, 'text-color', color);
-        }
-      } catch { /* skip */ }
-    }
-  }, []);
-
-  // ── Custom layers ──
+  // ── Stable addSourcesAndLayers (no trailColor/showTrails in deps!) ──
 
   const addSourcesAndLayers = useCallback((map: maplibregl.Map) => {
     if (!map.getSource('trails')) {
@@ -215,31 +219,33 @@ export default function MapContainer() {
       map.addLayer(satelliteLayer);
     }
 
-    // Trail casing
+    // Trail casing — visible from zoom 6
     if (!map.getLayer('trail-lines-casing')) {
       map.addLayer({
         id: 'trail-lines-casing',
         type: 'line',
         source: 'trails',
+        minzoom: 6,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': '#000000',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 5, 12, 7, 16, 10],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3, 10, 5, 14, 8, 18, 12],
           'line-opacity': 0.3,
         },
       });
     }
 
-    // Trail lines
+    // Trail lines — visible from zoom 6, use current color from ref
     if (!map.getLayer('trail-lines')) {
       map.addLayer({
         id: 'trail-lines',
         type: 'line',
         source: 'trails',
+        minzoom: 6,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': trailColor,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 4.5, 16, 7],
+          'line-color': trailColorRef.current,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.5, 10, 3, 14, 5, 18, 8],
           'line-opacity': 1,
         },
       });
@@ -271,15 +277,19 @@ export default function MapContainer() {
     }
 
     hideBoundaryLayers(map);
-    // Discover and style basemap path layers for this style
-    setupBasemapPaths(map, trailColor, showTrails);
-  }, [hideBoundaryLayers, trailColor, showTrails, setupBasemapPaths]);
+    discoverBasemapPaths(map);
+
+    // Apply current visibility from refs
+    if (!showTrailsRef.current) {
+      setBasemapPathsVisibility(map, false);
+    }
+  }, [hideBoundaryLayers, discoverBasemapPaths, setBasemapPathsVisibility]);
 
   // ── Data loading ──
 
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
-    if (map.getZoom() < 5) return;
+    if (map.getZoom() < MIN_DATA_ZOOM) return;
 
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
     try {
@@ -294,8 +304,8 @@ export default function MapContainer() {
       const labelSource = map.getSource('trail-labels') as maplibregl.GeoJSONSource;
       if (labelSource) labelSource.setData(labels);
 
-      // Update sidebar trail list
-      setTrails(extractTrailList(geojson));
+      // Update sidebar with grouped trails
+      setTrailGroups(extractTrailGroups(geojson));
     } catch (err) {
       console.error('Failed to load trails:', err);
     }
@@ -319,7 +329,7 @@ export default function MapContainer() {
     userMarkerRef.current = marker;
   }, []);
 
-  // ── Init map ──
+  // ── Init map (STABLE — no trailColor/showTrails in deps) ──
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -381,7 +391,7 @@ export default function MapContainer() {
     return () => { map.remove(); mapRef.current = null; };
   }, [addSourcesAndLayers, loadTrailsForViewport, createUserMarker]);
 
-  // ── Trail color reactivity ──
+  // ── Trail color reactivity (paint property only — NO re-init) ──
 
   useEffect(() => {
     const map = mapRef.current;
@@ -389,8 +399,7 @@ export default function MapContainer() {
     if (map.getLayer('trail-lines')) {
       map.setPaintProperty('trail-lines', 'line-color', trailColor);
     }
-    colorBasemapPaths(map, trailColor);
-  }, [trailColor, mapLoaded, colorBasemapPaths]);
+  }, [trailColor, mapLoaded]);
 
   // ── Basemap switch ──
 
@@ -402,7 +411,13 @@ export default function MapContainer() {
 
     map.once('style.load', () => {
       addSourcesAndLayers(map);
-      if (showSatellite) map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
+      // Re-apply current state from refs
+      if (map.getLayer('trail-lines')) {
+        map.setPaintProperty('trail-lines', 'line-color', trailColorRef.current);
+      }
+      if (showSatelliteRef.current && map.getLayer('satellite-layer')) {
+        map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
+      }
       loadTrailsForViewport(map);
 
       if (userMarkerRef.current) {
@@ -410,7 +425,7 @@ export default function MapContainer() {
         createUserMarker(map, lngLat.lng, lngLat.lat);
       }
     });
-  }, [showSatellite, addSourcesAndLayers, loadTrailsForViewport, createUserMarker]);
+  }, [addSourcesAndLayers, loadTrailsForViewport, createUserMarker]);
 
   // ── Toggles ──
 
@@ -432,12 +447,18 @@ export default function MapContainer() {
     setBasemapPathsVisibility(map, visible);
   }, [mapLoaded, setBasemapPathsVisibility]);
 
-  // ── Sidebar: fly to trail ──
+  // ── Sidebar: fly to trail or group ──
 
   const handleTrailSelect = useCallback((trail: TrailItem) => {
     const map = mapRef.current;
     if (!map || !trail.center) return;
-    map.flyTo({ center: trail.center, zoom: 14, speed: 1.2 });
+    map.flyTo({ center: trail.center, zoom: 15, speed: 1.2 });
+  }, []);
+
+  const handleGroupSelect = useCallback((group: TrailGroup) => {
+    const map = mapRef.current;
+    if (!map || !group.center) return;
+    map.flyTo({ center: group.center, zoom: 13, speed: 1.2 });
   }, []);
 
   return (
@@ -451,10 +472,11 @@ export default function MapContainer() {
 
       {/* Trail sidebar */}
       <TrailSidebar
-        trails={trails}
+        groups={trailGroups}
         open={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
-        onSelect={handleTrailSelect}
+        onTrailSelect={handleTrailSelect}
+        onGroupSelect={handleGroupSelect}
         trailColor={trailColor}
       />
 
