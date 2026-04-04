@@ -42,13 +42,13 @@ export const contourLineLayer: LayerSpecification = {
   paint: {
     'line-color': [
       'case',
-      ['==', ['get', 'level'], 1],
+      ['==', ['coalesce', ['get', 'level'], 0], 1],
       'rgba(120, 90, 50, 0.45)',   // major contours — darker brown
       'rgba(140, 110, 70, 0.25)',  // minor contours — lighter
     ],
     'line-width': [
       'case',
-      ['==', ['get', 'level'], 1],
+      ['==', ['coalesce', ['get', 'level'], 0], 1],
       1.2,   // major
       0.5,   // minor
     ],
@@ -63,12 +63,16 @@ export const contourLabelLayer: LayerSpecification = {
   type: 'symbol',
   source: 'contour-source',
   'source-layer': 'contours',
-  filter: ['==', ['get', 'level'], 1],
+  filter: ['all',
+    ['==', ['get', 'level'], 1],
+    ['has', 'ele'],
+    ['!=', ['get', 'ele'], null],
+  ],
   layout: {
     visibility: 'none',
     'text-field': [
       'concat',
-      ['number-format', ['get', 'ele'], {}],
+      ['to-string', ['round', ['get', 'ele']]],
       ' ft',
     ],
     'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9, 15, 11],

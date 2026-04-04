@@ -267,80 +267,44 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Make parks/greenery green and water blue on topo basemap */
+  /** Make parks/greenery green and water blue on topo basemap.
+   *  Positron uses specific layer IDs: park, landcover_wood, landuse_residential, water, etc.
+   */
   const adjustTopoStyle = useCallback((map: maplibregl.Map) => {
     const style = map.getStyle();
     if (!style?.layers) return;
 
-    // Log all layer IDs for debugging (check console to find ungreened classes)
-    console.log('[ROAM] Topo layers:', style.layers.map(l => `${l.id} (${l.type})`).join(', '));
-
     for (const layer of style.layers) {
       try {
-        const id = layer.id.toLowerCase();
+        const id = layer.id;
 
         // ── Water → blue ──
-        if (layer.type === 'fill' && id.includes('water')) {
-          map.setPaintProperty(layer.id, 'fill-color', '#aad4e8');
+        if (id === 'water' && layer.type === 'fill') {
+          map.setPaintProperty(id, 'fill-color', '#aad4e8');
         }
-        if (layer.type === 'line' && id.includes('water')) {
-          map.setPaintProperty(layer.id, 'line-color', '#8cc4dc');
-        }
-
-        // ── Landcover — use data-driven class matching ──
-        if (layer.type === 'fill' && id === 'landcover') {
-          map.setPaintProperty(layer.id, 'fill-color', [
-            'match', ['get', 'class'],
-            'grass', '#c2e2b8',
-            'wood', '#a8d4a0',
-            'forest', '#a8d4a0',
-            'scrub', '#cce8c4',
-            'farmland', '#e4eeda',
-            'wetland', '#b8dcc8',
-            '#ddd', // fallback
-          ]);
+        if (id === 'waterway' && layer.type === 'line') {
+          map.setPaintProperty(id, 'line-color', '#8cc4dc');
         }
 
-        // ── Landuse — use data-driven class matching ──
-        if (layer.type === 'fill' && id === 'landuse') {
-          map.setPaintProperty(layer.id, 'fill-color', [
-            'match', ['get', 'class'],
-            'park', '#c2e2b8',
-            'national_park', '#b0d8a4',
-            'nature_reserve', '#b8dcac',
-            'recreation_ground', '#c8e6c0',
-            'golf_course', '#d4eacc',
-            'garden', '#c8e6c0',
-            'allotments', '#d8edd0',
-            'village_green', '#c8e6c0',
-            'forest', '#a8d4a0',
-            'meadow', '#d4eacc',
-            'orchard', '#d8edd0',
-            'vineyard', '#d8edd0',
-            'cemetery', '#d0e8c8',
-            'pitch', '#d4e8d0',
-            'playground', '#dcecd4',
-            'school', '#f0f0e0',
-            'university', '#f0f0e0',
-            'hospital', '#f0e0e0',
-            'railway', '#e8e8e8',
-            'industrial', '#eae8e4',
-            'commercial', '#eae8e4',
-            'residential', '#f0eeec',
-            '#e8e8e8', // default fallback
-          ]);
+        // ── Park → green (this covers parks, memorial parks, preserves, etc.) ──
+        if (id === 'park' && layer.type === 'fill') {
+          map.setPaintProperty(id, 'fill-color', '#c2e2b8');
+          map.setPaintProperty(id, 'fill-opacity', 0.8);
         }
 
-        // ── Catch-all for named landcover/landuse layers that use specific IDs ──
-        if (layer.type === 'fill' && id !== 'landcover' && id !== 'landuse' && (id.includes('landcover') || id.includes('landuse'))) {
-          if (id.includes('grass') || id.includes('park') || id.includes('wood') || id.includes('forest') || id.includes('green') || id.includes('nature') || id.includes('reserve')) {
-            map.setPaintProperty(layer.id, 'fill-color', '#c2e2b8');
-          } else if (id.includes('vegetation') || id.includes('scrub') || id.includes('meadow') || id.includes('wetland')) {
-            map.setPaintProperty(layer.id, 'fill-color', '#d4eacc');
-          } else if (id.includes('farm') || id.includes('orchard') || id.includes('vineyard')) {
-            map.setPaintProperty(layer.id, 'fill-color', '#e4eeda');
-          }
+        // ── Landcover wood/forest → darker green ──
+        if (id === 'landcover_wood' && layer.type === 'fill') {
+          map.setPaintProperty(id, 'fill-color', '#a8d4a0');
         }
+
+        // ── Landcover ice/glacier — keep white-ish ──
+        // landcover_ice_shelf, landcover_glacier — no change needed
+
+        // ── Landuse residential — subtle warm tone ──
+        if (id === 'landuse_residential' && layer.type === 'fill') {
+          map.setPaintProperty(id, 'fill-color', '#f0eeec');
+        }
+
       } catch { /* skip */ }
     }
   }, []);
