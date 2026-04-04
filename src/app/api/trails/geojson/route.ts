@@ -31,14 +31,29 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('GeoJSON query error:', error);
-      // Return empty FeatureCollection on error (table might not exist yet)
       return NextResponse.json({
         type: 'FeatureCollection',
         features: [],
       });
     }
 
-    return NextResponse.json(data || { type: 'FeatureCollection', features: [] }, {
+    // Filter out parking lots, very short segments, and non-trail features
+    const PARKING_PATTERNS = /parking|lot\b/i;
+    const MIN_LENGTH_MILES = 0.1;
+
+    const geojson = data || { type: 'FeatureCollection', features: [] };
+    if (geojson.features) {
+      geojson.features = geojson.features.filter((f: { properties: { name?: string; length_miles?: number } }) => {
+        const name = f.properties?.name || '';
+        const length = f.properties?.length_miles ?? 999;
+        // Exclude parking areas and very short segments
+        if (PARKING_PATTERNS.test(name)) return false;
+        if (length < MIN_LENGTH_MILES) return false;
+        return true;
+      });
+    }
+
+    return NextResponse.json(geojson, {
       headers: {
         'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
       },

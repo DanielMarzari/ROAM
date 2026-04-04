@@ -2,14 +2,17 @@
 
 import { useState } from 'react';
 import type { BasemapStyle } from '@/types/map';
+import { TRAIL_COLOR_PRESETS } from '@/lib/maps/config';
 
 interface LayerToggleProps {
   basemap: BasemapStyle;
   showSatellite: boolean;
   showTrails: boolean;
+  trailColor: string;
   onBasemapChange: (style: BasemapStyle) => void;
   onSatelliteToggle: (visible: boolean) => void;
   onTrailToggle: (visible: boolean) => void;
+  onTrailColorChange: (color: string) => void;
 }
 
 const BASEMAP_OPTIONS: { value: BasemapStyle; label: string; icon: string }[] = [
@@ -23,9 +26,11 @@ export default function LayerToggle({
   basemap,
   showSatellite,
   showTrails,
+  trailColor,
   onBasemapChange,
   onSatelliteToggle,
   onTrailToggle,
+  onTrailColorChange,
 }: LayerToggleProps) {
   const [open, setOpen] = useState(false);
 
@@ -84,6 +89,36 @@ export default function LayerToggle({
             />
             <span className="text-sm text-stone-700">Satellite</span>
           </label>
+
+          {/* Trail color picker */}
+          {showTrails && (
+            <div className="mt-3 pt-3 border-t border-stone-200">
+              <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-2">Trail Color</p>
+              <div className="flex flex-wrap gap-1.5">
+                {TRAIL_COLOR_PRESETS.map((preset) => (
+                  <button
+                    key={preset.color}
+                    onClick={() => onTrailColorChange(preset.color)}
+                    title={preset.name}
+                    className="w-7 h-7 rounded-full transition-transform hover:scale-110 flex items-center justify-center"
+                    style={{
+                      backgroundColor: preset.color,
+                      border: preset.color === '#ffffff' ? '2px solid #d6d3d1' : '2px solid transparent',
+                      boxShadow: trailColor === preset.color ? '0 0 0 2px #16a34a' : 'none',
+                      outline: trailColor === preset.color ? '2px solid #16a34a' : 'none',
+                      outlineOffset: '1px',
+                    }}
+                  >
+                    {trailColor === preset.color && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={preset.color === '#ffffff' ? '#333' : '#fff'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -46,15 +46,23 @@ export const OVERLAY_TILES = {
 };
 
 /**
- * Trail line styling by difficulty — bold, saturated colors.
+ * Default trail color (yellow) — user can override via color picker.
  */
-export const TRAIL_COLORS: Record<string, string> = {
-  easy: '#15803d',      // bold green
-  moderate: '#2563eb',  // bold blue
-  hard: '#d97706',      // bold amber
-  expert: '#dc2626',    // bold red
-  unknown: '#7c3aed',   // bold purple
-};
+export const DEFAULT_TRAIL_COLOR = '#eab308'; // yellow-500
+
+/**
+ * Preset trail color options for the color picker.
+ */
+export const TRAIL_COLOR_PRESETS = [
+  { name: 'Yellow', color: '#eab308' },
+  { name: 'Orange', color: '#f97316' },
+  { name: 'Red', color: '#ef4444' },
+  { name: 'Green', color: '#22c55e' },
+  { name: 'Blue', color: '#3b82f6' },
+  { name: 'Purple', color: '#a855f7' },
+  { name: 'Pink', color: '#ec4899' },
+  { name: 'White', color: '#ffffff' },
+];
 
 export const DEFAULT_CENTER: [number, number] = [-98.5795, 39.8283]; // Center of US
 export const DEFAULT_ZOOM = 4;

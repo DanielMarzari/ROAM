@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { BASEMAP_STYLES, DEFAULT_CENTER, DEFAULT_ZOOM, TRAIL_COLORS, BASEMAP_PATH_LAYERS } from '@/lib/maps/config';
+import { BASEMAP_STYLES, DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_TRAIL_COLOR, BASEMAP_PATH_LAYERS } from '@/lib/maps/config';
 import { satelliteSource, satelliteLayer } from '@/lib/maps/layers';
 import type { BasemapStyle } from '@/types/map';
 import LayerToggle from './LayerToggle';
@@ -14,14 +14,84 @@ const HIDDEN_LAYERS = ['boundary_3', 'boundary_2', 'boundary_disputed'];
 // Our custom trail layer IDs
 const TRAIL_LAYER_IDS = ['trail-lines', 'trail-lines-casing'];
 
+// Helper: compute midpoint of a LineString coordinate array
+function midpoint(coords: number[][]): [number, number] | null {
+  if (!coords || coords.length < 2) return null;
+
+  // Calculate cumulative distances
+  let totalDist = 0;
+  const dists = [0];
+  for (let i = 1; i < coords.length; i++) {
+    const dx = coords[i][0] - coords[i - 1][0];
+    const dy = coords[i][1] - coords[i - 1][1];
+    totalDist += Math.sqrt(dx * dx + dy * dy);
+    dists.push(totalDist);
+  }
+
+  const half = totalDist / 2;
+  for (let i = 1; i < dists.length; i++) {
+    if (dists[i] >= half) {
+      const segLen = dists[i] - dists[i - 1];
+      const t = segLen > 0 ? (half - dists[i - 1]) / segLen : 0;
+      return [
+        coords[i - 1][0] + t * (coords[i][0] - coords[i - 1][0]),
+        coords[i - 1][1] + t * (coords[i][1] - coords[i - 1][1]),
+      ];
+    }
+  }
+  return [coords[0][0], coords[0][1]];
+}
+
+// Build a point FeatureCollection with length labels at trail midpoints
+function buildLengthLabels(trailsGeoJSON: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+
+  for (const feature of trailsGeoJSON.features) {
+    const props = feature.properties || {};
+    const miles = props.length_miles;
+    if (!miles || miles < 0.3) continue; // Only label trails >= 0.3mi
+
+    const geom = feature.geometry;
+    let coords: number[][] | null = null;
+
+    if (geom.type === 'LineString') {
+      coords = geom.coordinates as number[][];
+    } else if (geom.type === 'MultiLineString') {
+      // Use the longest segment
+      const segments = geom.coordinates as number[][][];
+      let longest: number[][] = [];
+      for (const seg of segments) {
+        if (seg.length > longest.length) longest = seg;
+      }
+      coords = longest;
+    }
+
+    const mid = coords ? midpoint(coords) : null;
+    if (!mid) continue;
+
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: mid },
+      properties: {
+        label: `${miles} mi`,
+        name: props.name || '',
+      },
+    });
+  }
+
+  return { type: 'FeatureCollection', features };
+}
+
 export default function MapContainer() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const lastGeoJSONRef = useRef<GeoJSON.FeatureCollection | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [basemap, setBasemap] = useState<BasemapStyle>('outdoor');
   const [showSatellite, setShowSatellite] = useState(false);
   const [showTrails, setShowTrails] = useState(true);
+  const [trailColor, setTrailColor] = useState(DEFAULT_TRAIL_COLOR);
 
   /** Hide admin boundary layers */
   const hideBoundaryLayers = useCallback((map: maplibregl.Map) => {
@@ -51,6 +121,13 @@ export default function MapContainer() {
       });
     }
 
+    if (!map.getSource('trail-labels')) {
+      map.addSource('trail-labels', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+    }
+
     if (!map.getSource('satellite')) {
       map.addSource('satellite', satelliteSource());
     }
@@ -59,7 +136,7 @@ export default function MapContainer() {
       map.addLayer(satelliteLayer);
     }
 
-    // Trail casing (white outline underneath for contrast)
+    // Trail casing (dark outline underneath for contrast)
     if (!map.getLayer('trail-lines-casing')) {
       map.addLayer({
         id: 'trail-lines-casing',
@@ -67,14 +144,14 @@ export default function MapContainer() {
         source: 'trails',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': '#ffffff',
+          'line-color': '#000000',
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 5, 12, 7, 16, 10],
-          'line-opacity': 0.6,
+          'line-opacity': 0.3,
         },
       });
     }
 
-    // Trail lines — bold colors by difficulty
+    // Trail lines — single user-selected color
     if (!map.getLayer('trail-lines')) {
       map.addLayer({
         id: 'trail-lines',
@@ -82,22 +159,40 @@ export default function MapContainer() {
         source: 'trails',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': [
-            'match', ['get', 'difficulty'],
-            'easy', TRAIL_COLORS.easy,
-            'moderate', TRAIL_COLORS.moderate,
-            'hard', TRAIL_COLORS.hard,
-            'expert', TRAIL_COLORS.expert,
-            TRAIL_COLORS.unknown,
-          ],
+          'line-color': trailColor,
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 4.5, 16, 7],
           'line-opacity': 1,
         },
       });
     }
 
+    // Trail length labels at midpoints
+    if (!map.getLayer('trail-length-labels')) {
+      map.addLayer({
+        id: 'trail-length-labels',
+        type: 'symbol',
+        source: 'trail-labels',
+        minzoom: 11,
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 14, 13, 16, 15],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-anchor': 'center',
+          'text-allow-overlap': false,
+          'text-ignore-placement': false,
+          'text-padding': 8,
+        },
+        paint: {
+          'text-color': '#1a1a1a',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 2,
+          'text-halo-blur': 1,
+        },
+      });
+    }
+
     hideBoundaryLayers(map);
-  }, [hideBoundaryLayers]);
+  }, [hideBoundaryLayers, trailColor]);
 
   /** Fetch trails for current viewport */
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
@@ -109,8 +204,15 @@ export default function MapContainer() {
       const res = await fetch(`/api/trails/geojson?bbox=${bbox}`);
       if (!res.ok) return;
       const geojson = await res.json();
+
       const source = map.getSource('trails') as maplibregl.GeoJSONSource;
       if (source) source.setData(geojson);
+
+      // Build and set length labels
+      lastGeoJSONRef.current = geojson;
+      const labels = buildLengthLabels(geojson);
+      const labelSource = map.getSource('trail-labels') as maplibregl.GeoJSONSource;
+      if (labelSource) labelSource.setData(labels);
     } catch (err) {
       console.error('Failed to load trails:', err);
     }
@@ -118,12 +220,10 @@ export default function MapContainer() {
 
   /** Create the pulsing user location marker */
   const createUserMarker = useCallback((map: maplibregl.Map, lng: number, lat: number) => {
-    // Remove existing marker if any
     if (userMarkerRef.current) {
       userMarkerRef.current.remove();
     }
 
-    // Outer pulsing ring + inner dot
     const el = document.createElement('div');
     el.innerHTML = `
       <div style="position:relative;width:24px;height:24px;">
@@ -169,7 +269,7 @@ export default function MapContainer() {
             <div style="font-family:system-ui;">
               <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;">${props.name || 'Unnamed Trail'}</h3>
               <div style="display:flex;gap:8px;font-size:12px;color:#666;flex-wrap:wrap;">
-                ${props.difficulty ? `<span style="color:${TRAIL_COLORS[props.difficulty] || TRAIL_COLORS.unknown};font-weight:600;text-transform:capitalize;">${props.difficulty}</span>` : ''}
+                ${props.difficulty ? `<span style="font-weight:600;text-transform:capitalize;">${props.difficulty}</span>` : ''}
                 ${props.length_miles ? `<span>${props.length_miles} mi</span>` : ''}
                 ${props.elevation_gain_ft ? `<span>${props.elevation_gain_ft} ft gain</span>` : ''}
               </div>
@@ -192,7 +292,6 @@ export default function MapContainer() {
             map.flyTo({ center: [longitude, latitude], zoom: 11, speed: 1.5 });
           },
           () => {
-            // Permission denied or error — just load trails at default view
             loadTrailsForViewport(map);
           },
           { enableHighAccuracy: true, timeout: 8000 }
@@ -207,6 +306,15 @@ export default function MapContainer() {
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
   }, [addSourcesAndLayers, loadTrailsForViewport, createUserMarker]);
+
+  // Update trail color when user changes it
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (map.getLayer('trail-lines')) {
+      map.setPaintProperty('trail-lines', 'line-color', trailColor);
+    }
+  }, [trailColor, mapLoaded]);
 
   // Basemap switch
   const handleBasemapChange = useCallback((style: BasemapStyle) => {
@@ -244,8 +352,8 @@ export default function MapContainer() {
     if (!map || !mapLoaded) return;
     const vis = visible ? 'visible' : 'none';
 
-    // Our custom trail layers
-    for (const id of TRAIL_LAYER_IDS) {
+    // Our custom trail layers + labels
+    for (const id of [...TRAIL_LAYER_IDS, 'trail-length-labels']) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
     }
 
@@ -270,9 +378,11 @@ export default function MapContainer() {
           basemap={basemap}
           showSatellite={showSatellite}
           showTrails={showTrails}
+          trailColor={trailColor}
           onBasemapChange={handleBasemapChange}
           onSatelliteToggle={handleSatelliteToggle}
           onTrailToggle={handleTrailToggle}
+          onTrailColorChange={setTrailColor}
         />
       )}
 
