@@ -2,17 +2,16 @@
 
 import { useState } from 'react';
 import type { BasemapStyle } from '@/types/map';
-import { TRAIL_COLOR_PRESETS } from '@/lib/maps/config';
 
 interface MapControlsProps {
   basemap: BasemapStyle;
   showSatellite: boolean;
   showTrails: boolean;
-  trailColor: string;
+  showContours: boolean;
   onBasemapChange: (style: BasemapStyle) => void;
   onSatelliteToggle: (visible: boolean) => void;
   onTrailToggle: (visible: boolean) => void;
-  onTrailColorChange: (color: string) => void;
+  onContourToggle: (visible: boolean) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onLocate: () => void;
@@ -22,7 +21,6 @@ const BASEMAP_OPTIONS: { value: BasemapStyle; label: string }[] = [
   { value: 'outdoor', label: 'Outdoor' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
-  { value: 'topo', label: 'Topo' },
 ];
 
 const btnBase: React.CSSProperties = {
@@ -45,11 +43,11 @@ export default function MapControls({
   basemap,
   showSatellite,
   showTrails,
-  trailColor,
+  showContours,
   onBasemapChange,
   onSatelliteToggle,
   onTrailToggle,
-  onTrailColorChange,
+  onContourToggle,
   onZoomIn,
   onZoomOut,
   onLocate,
@@ -101,7 +99,7 @@ export default function MapControls({
             borderRadius: 12,
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             padding: 16,
-            width: 220,
+            width: 200,
             fontFamily: 'system-ui',
           }}>
             {/* Basemap selection */}
@@ -112,12 +110,13 @@ export default function MapControls({
             }}>
               Base Map
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
               {BASEMAP_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => onBasemapChange(opt.value)}
                   style={{
+                    flex: 1,
                     fontSize: 12,
                     padding: '7px 0',
                     borderRadius: 8,
@@ -161,63 +160,26 @@ export default function MapControls({
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', cursor: 'pointer' }}>
               <input
                 type="checkbox"
+                checked={showContours}
+                onChange={(e) => onContourToggle(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: '#16a34a' }}
+              />
+              <span style={{ fontSize: 13, color: '#44403c' }}>Contours</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
                 checked={showSatellite}
                 onChange={(e) => onSatelliteToggle(e.target.checked)}
                 style={{ width: 16, height: 16, accentColor: '#16a34a' }}
               />
               <span style={{ fontSize: 13, color: '#44403c' }}>Satellite</span>
             </label>
-
-            {/* Trail color picker */}
-            {showTrails && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e7e5e4' }}>
-                <p style={{
-                  fontSize: 10, fontWeight: 700, color: '#a8a29e',
-                  textTransform: 'uppercase', letterSpacing: '0.5px',
-                  margin: '0 0 8px',
-                }}>
-                  Trail Color
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {TRAIL_COLOR_PRESETS.map((preset) => (
-                    <button
-                      key={preset.color}
-                      onClick={() => onTrailColorChange(preset.color)}
-                      title={preset.name}
-                      style={{
-                        width: 26,
-                        height: 26,
-                        borderRadius: '50%',
-                        backgroundColor: preset.color,
-                        border: preset.color === '#ffffff' ? '2px solid #d6d3d1' : '2px solid transparent',
-                        boxShadow: trailColor === preset.color ? '0 0 0 2px #16a34a' : 'none',
-                        outline: trailColor === preset.color ? '2px solid #16a34a' : 'none',
-                        outlineOffset: '1px',
-                        cursor: 'pointer',
-                        padding: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'transform 0.15s',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.15)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-                    >
-                      {trailColor === preset.color && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={preset.color === '#ffffff' ? '#333' : '#fff'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
 
-      {/* Divider line */}
+      {/* Divider */}
       <div style={{ width: 20, height: 1, backgroundColor: '#d6d3d1' }} />
 
       {/* Zoom in */}
@@ -247,7 +209,7 @@ export default function MapControls({
         </svg>
       </button>
 
-      {/* Divider line */}
+      {/* Divider */}
       <div style={{ width: 20, height: 1, backgroundColor: '#d6d3d1' }} />
 
       {/* Locate me */}
