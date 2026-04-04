@@ -154,17 +154,18 @@ function chainSegments(segments: [number, number][][]): [number, number][][] {
 }
 
 /**
- * Convert an Overpass element to a trail geometry (LineString coordinates).
- * For relations, properly chains connected member segments and returns
- * the longest connected chain (avoids criss-cross artifacts).
+ * Convert an Overpass element to trail geometry/geometries.
+ * - For ways: returns a single LineString coordinate array.
+ * - For relations: chains connected member segments and returns ALL
+ *   connected chains (each becomes its own trail row to avoid criss-crosses).
  */
-function extractGeometry(element: OverpassElement): [number, number][] | null {
-  // Simple way — just return its geometry
+function extractGeometries(element: OverpassElement): [number, number][][] {
+  // Simple way — single geometry
   if (element.geometry && element.geometry.length >= 2) {
-    return element.geometry.map((p) => [p.lon, p.lat]);
+    return [element.geometry.map((p) => [p.lon, p.lat])];
   }
 
-  // Relation — extract each member as a separate segment, then chain them
+  // Relation — extract each member as a separate segment, then chain
   if (element.members) {
     const segments: [number, number][][] = [];
     for (const member of element.members) {
@@ -172,17 +173,14 @@ function extractGeometry(element: OverpassElement): [number, number][] | null {
         segments.push(member.geometry.map((p) => [p.lon, p.lat]));
       }
     }
-    if (segments.length === 0) return null;
+    if (segments.length === 0) return [];
 
     const chains = chainSegments(segments);
-    if (chains.length === 0) return null;
-
-    // Return the longest connected chain
-    const longest = chains.reduce((a, b) => a.length > b.length ? a : b);
-    if (longest.length >= 2) return longest;
+    // Filter out tiny chains (< 3 points) that are likely artifacts
+    return chains.filter(c => c.length >= 3);
   }
 
-  return null;
+  return [];
 }
 
 /**
@@ -253,42 +251,54 @@ async function syncState(stateCode: string, limit?: number) {
       const tags = element.tags || {};
       if (!tags.name) { skipped++; continue; }
 
-      const coords = extractGeometry(element);
-      if (!coords || coords.length < 2) { skipped++; continue; }
+      const chains = extractGeometries(element);
+      if (chains.length === 0) { skipped++; continue; }
 
-      const centroid = calculateCentroid(coords);
-      const lengthMiles = tags.distance
-        ? parseFloat(tags.distance) * 0.000621371
-        : calculateLengthMiles(coords);
+      // Each connected chain becomes its own trail row.
+      // Ways produce 1 chain; relations may produce multiple.
+      for (let ci = 0; ci < chains.length; ci++) {
+        const coords = chains[ci];
+        if (coords.length < 2) continue;
 
-      const trail = {
-        name: tags.name,
-        description: tags.description || tags.note || null,
-        difficulty: mapDifficulty(tags),
-        length_miles: Math.round(lengthMiles * 100) / 100,
-        route_type: tags.roundtrip === 'yes' ? 'loop' : null,
-        surface_type: tags.surface || null,
-        geometry: `SRID=4326;LINESTRING(${coords.map((c) => `${c[0]} ${c[1]}`).join(',')})`,
-        center_point: `SRID=4326;POINT(${centroid[0]} ${centroid[1]})`,
-        source: 'osm' as const,
-        external_id: `${element.type}/${element.id}`,
-        source_data: tags,
-        pet_friendly: tags.dog === 'yes' ? true : tags.dog === 'no' ? false : null,
-        water_available: tags.drinking_water === 'yes' ? true : null,
-        maintained_by: tags.operator || null,
-        state: stateCode,
-        last_synced_at: new Date().toISOString(),
-      };
+        const centroid = calculateCentroid(coords);
+        const lengthMiles = (ci === 0 && tags.distance)
+          ? parseFloat(tags.distance) * 0.000621371
+          : calculateLengthMiles(coords);
 
-      const { error } = await supabase
-        .from('trails')
-        .upsert(trail, { onConflict: 'source,external_id' });
+        // For relations with multiple chains, append /chain-N to make unique external_ids
+        const externalId = chains.length === 1
+          ? `${element.type}/${element.id}`
+          : `${element.type}/${element.id}/chain-${ci}`;
 
-      if (error) {
-        console.error(`  Error inserting ${trail.name}:`, error.message);
-        skipped++;
-      } else {
-        created++;
+        const trail = {
+          name: tags.name,
+          description: tags.description || tags.note || null,
+          difficulty: mapDifficulty(tags),
+          length_miles: Math.round(lengthMiles * 100) / 100,
+          route_type: tags.roundtrip === 'yes' ? 'loop' : null,
+          surface_type: tags.surface || null,
+          geometry: `SRID=4326;LINESTRING(${coords.map((c) => `${c[0]} ${c[1]}`).join(',')})`,
+          center_point: `SRID=4326;POINT(${centroid[0]} ${centroid[1]})`,
+          source: 'osm' as const,
+          external_id: externalId,
+          source_data: tags,
+          pet_friendly: tags.dog === 'yes' ? true : tags.dog === 'no' ? false : null,
+          water_available: tags.drinking_water === 'yes' ? true : null,
+          maintained_by: tags.operator || null,
+          state: stateCode,
+          last_synced_at: new Date().toISOString(),
+        };
+
+        const { error } = await supabase
+          .from('trails')
+          .upsert(trail, { onConflict: 'source,external_id' });
+
+        if (error) {
+          console.error(`  Error inserting ${trail.name}:`, error.message);
+          skipped++;
+        } else {
+          created++;
+        }
       }
     }
 
