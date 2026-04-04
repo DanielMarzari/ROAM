@@ -202,6 +202,7 @@ export default function MapContainer() {
 
   // Refs for stable callbacks
   const showTrailsRef = useRef(true);
+  const showBasemapPathsRef = useRef(true);
   const showSatelliteRef = useRef(false);
   const showContoursRef = useRef(false);
   const basemapRef = useRef<BasemapStyle>('outdoor');
@@ -210,6 +211,7 @@ export default function MapContainer() {
   const [basemap, setBasemap] = useState<BasemapStyle>('outdoor');
   const [showSatellite, setShowSatellite] = useState(false);
   const [showTrails, setShowTrails] = useState(true);
+  const [showBasemapPaths, setShowBasemapPaths] = useState(true);
   const [showContours, setShowContours] = useState(false);
   const [trailGroups, setTrailGroups] = useState<TrailGroup[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -217,6 +219,7 @@ export default function MapContainer() {
 
   // Keep refs in sync
   useEffect(() => { showTrailsRef.current = showTrails; }, [showTrails]);
+  useEffect(() => { showBasemapPathsRef.current = showBasemapPaths; }, [showBasemapPaths]);
   useEffect(() => { showSatelliteRef.current = showSatellite; }, [showSatellite]);
   useEffect(() => { showContoursRef.current = showContours; }, [showContours]);
   useEffect(() => { basemapRef.current = basemap; }, [basemap]);
@@ -396,48 +399,46 @@ export default function MapContainer() {
       map.addLayer(contourLabelLayer);
     }
 
-    // Trail casing — hidden by default (basemap paths provide default trail rendering)
-    if (!map.getLayer('trail-lines-casing')) {
-      map.addLayer({
-        id: 'trail-lines-casing',
-        type: 'line',
-        source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'none' },
-        paint: {
-          'line-color': '#000000',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 2, 6, 3, 10, 5, 14, 7, 18, 10],
-          'line-opacity': 0.12,
-        },
-      });
-    }
-
-    // Trail lines — hidden by default
+    // Trail lines — thin black, visible by default
     if (!map.getLayer('trail-lines')) {
       map.addLayer({
         id: 'trail-lines',
         type: 'line',
         source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: 'none' },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': TRAIL_LINE_COLOR,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.2, 6, 2, 10, 3.5, 14, 5, 18, 7],
-          'line-opacity': 1,
-          'line-dasharray': TRAIL_DASH_PATTERN,
+          'line-color': '#1a1a1a',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 12, 1.5, 15, 2, 18, 3],
+          'line-opacity': 0.7,
         },
       });
     }
 
-    // Length labels — HIDDEN by default
+    // Trail casing — subtle, visible by default
+    if (!map.getLayer('trail-lines-casing')) {
+      map.addLayer({
+        id: 'trail-lines-casing',
+        type: 'line',
+        source: 'trails',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#000000',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.6, 12, 3, 15, 4, 18, 5.5],
+          'line-opacity': 0.08,
+        },
+      });
+    }
+
+    // Length labels
     if (!map.getLayer('trail-length-labels')) {
       map.addLayer({
         id: 'trail-length-labels',
         type: 'symbol',
         source: 'trail-labels',
-        minzoom: 11,
+        minzoom: 13,
         layout: {
-          visibility: 'none',
           'text-field': ['get', 'label'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 14, 13, 16, 15],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 15, 11, 17, 13],
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
           'text-anchor': 'center',
           'text-allow-overlap': false,
@@ -489,7 +490,7 @@ export default function MapContainer() {
     }
 
     hideBoundaryLayers(map);
-    setupBasemapPaths(map, showTrailsRef.current);
+    setupBasemapPaths(map, showBasemapPathsRef.current);
     desaturateRoads(map);
 
     // Style adjustments per basemap
@@ -724,12 +725,17 @@ export default function MapContainer() {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
     const vis = visible ? 'visible' : 'none';
-    // Basemap paths toggle
-    setBasemapPathsVisibility(map, visible);
-    // Selected trail highlight toggle
-    for (const id of SELECTED_TRAIL_LAYER_IDS) {
+    // Toggle data trail layers + labels + selected highlight
+    for (const id of [...TRAIL_LAYER_IDS, 'trail-length-labels', ...SELECTED_TRAIL_LAYER_IDS]) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
     }
+  }, [mapLoaded]);
+
+  const handleBasemapPathsToggle = useCallback((visible: boolean) => {
+    setShowBasemapPaths(visible);
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    setBasemapPathsVisibility(map, visible);
   }, [mapLoaded, setBasemapPathsVisibility]);
 
   // ── Sidebar ──
@@ -813,10 +819,12 @@ export default function MapContainer() {
             showSatellite={showSatellite}
             showTrails={showTrails}
             showContours={showContours}
+            showBasemapPaths={showBasemapPaths}
             onBasemapChange={handleBasemapChange}
             onSatelliteToggle={handleSatelliteToggle}
             onTrailToggle={handleTrailToggle}
             onContourToggle={handleContourToggle}
+            onBasemapPathsToggle={handleBasemapPathsToggle}
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
             onLocate={handleLocate}

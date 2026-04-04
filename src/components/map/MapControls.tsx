@@ -8,10 +8,12 @@ interface MapControlsProps {
   showSatellite: boolean;
   showTrails: boolean;
   showContours: boolean;
+  showBasemapPaths: boolean;
   onBasemapChange: (style: BasemapStyle) => void;
   onSatelliteToggle: (visible: boolean) => void;
   onTrailToggle: (visible: boolean) => void;
   onContourToggle: (visible: boolean) => void;
+  onBasemapPathsToggle: (visible: boolean) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onLocate: () => void;
@@ -45,10 +47,12 @@ export default function MapControls({
   showSatellite,
   showTrails,
   showContours,
+  showBasemapPaths,
   onBasemapChange,
   onSatelliteToggle,
   onTrailToggle,
   onContourToggle,
+  onBasemapPathsToggle,
   onZoomIn,
   onZoomOut,
   onLocate,
@@ -156,6 +160,15 @@ export default function MapControls({
                 style={{ width: 16, height: 16, accentColor: '#16a34a' }}
               />
               <span style={{ fontSize: 13, color: '#44403c' }}>Trails</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={showBasemapPaths}
+                onChange={(e) => onBasemapPathsToggle(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: '#16a34a' }}
+              />
+              <span style={{ fontSize: 13, color: '#44403c' }}>Basemap Paths</span>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', cursor: 'pointer' }}>
               <input
