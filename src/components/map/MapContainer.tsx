@@ -112,6 +112,25 @@ export default function MapContainer() {
     }
   }, []);
 
+  /** Recolor basemap's built-in path/trail layers to match user's trail color */
+  const colorBasemapPaths = useCallback((map: maplibregl.Map, color: string) => {
+    for (const id of BASEMAP_PATH_LAYERS) {
+      if (map.getLayer(id)) {
+        try {
+          // Line layers use line-color, symbol layers use text-color
+          const layer = map.getLayer(id);
+          if (layer && layer.type === 'line') {
+            map.setPaintProperty(id, 'line-color', color);
+          } else if (layer && layer.type === 'symbol') {
+            map.setPaintProperty(id, 'text-color', color);
+          }
+        } catch {
+          // Some layers might not support color changes
+        }
+      }
+    }
+  }, []);
+
   /** Add custom sources + layers */
   const addSourcesAndLayers = useCallback((map: maplibregl.Map) => {
     if (!map.getSource('trails')) {
@@ -192,7 +211,8 @@ export default function MapContainer() {
     }
 
     hideBoundaryLayers(map);
-  }, [hideBoundaryLayers, trailColor]);
+    colorBasemapPaths(map, trailColor);
+  }, [hideBoundaryLayers, trailColor, colorBasemapPaths]);
 
   /** Fetch trails for current viewport */
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
@@ -307,14 +327,15 @@ export default function MapContainer() {
     return () => { map.remove(); mapRef.current = null; };
   }, [addSourcesAndLayers, loadTrailsForViewport, createUserMarker]);
 
-  // Update trail color when user changes it
+  // Update trail color when user changes it (both custom layers AND basemap paths)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
     if (map.getLayer('trail-lines')) {
       map.setPaintProperty('trail-lines', 'line-color', trailColor);
     }
-  }, [trailColor, mapLoaded]);
+    colorBasemapPaths(map, trailColor);
+  }, [trailColor, mapLoaded, colorBasemapPaths]);
 
   // Basemap switch
   const handleBasemapChange = useCallback((style: BasemapStyle) => {
