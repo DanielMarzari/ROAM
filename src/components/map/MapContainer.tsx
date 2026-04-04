@@ -4,15 +4,12 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { BASEMAP_STYLES, DEFAULT_CENTER, DEFAULT_ZOOM, TRAIL_COLORS } from '@/lib/maps/config';
-import {
-  trailLineLayer,
-  trailClusterLayer,
-  trailClusterCountLayer,
-  satelliteSource,
-  satelliteLayer,
-} from '@/lib/maps/layers';
+import { satelliteSource, satelliteLayer } from '@/lib/maps/layers';
 import type { BasemapStyle } from '@/types/map';
 import LayerToggle from './LayerToggle';
+
+// Boundary / admin layers in OpenFreeMap styles that we want to hide
+const HIDDEN_LAYERS = ['boundary_3', 'boundary_2', 'boundary_disputed'];
 
 export default function MapContainer() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -22,35 +19,99 @@ export default function MapContainer() {
   const [showSatellite, setShowSatellite] = useState(false);
   const [showTrails, setShowTrails] = useState(true);
 
+  /** Hide admin boundary layers from the basemap */
+  const hideBoundaryLayers = useCallback((map: maplibregl.Map) => {
+    for (const id of HIDDEN_LAYERS) {
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', 'none');
+      }
+    }
+  }, []);
+
+  /** Add our custom sources + layers on top of the basemap */
   const addSourcesAndLayers = useCallback((map: maplibregl.Map) => {
-    // Trail GeoJSON source
+    // Trail source — NO clustering (trails are LineStrings, not Points)
     if (!map.getSource('trails')) {
       map.addSource('trails', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
-        cluster: true,
-        clusterMaxZoom: 12,
-        clusterRadius: 50,
       });
     }
 
-    // Satellite source
+    // Satellite raster source
     if (!map.getSource('satellite')) {
       map.addSource('satellite', satelliteSource());
     }
 
-    // Add layers (order matters: satellite under trails)
-    if (!map.getLayer('satellite-layer')) map.addLayer(satelliteLayer);
-    if (!map.getLayer('trail-lines')) map.addLayer(trailLineLayer);
-    if (!map.getLayer('trail-clusters')) map.addLayer(trailClusterLayer);
-    if (!map.getLayer('trail-cluster-count')) map.addLayer(trailClusterCountLayer);
-  }, []);
+    // Satellite layer (hidden by default)
+    if (!map.getLayer('satellite-layer')) {
+      map.addLayer(satelliteLayer);
+    }
 
-  // Fetch trails for current map viewport
+    // Trail line layer — colored by difficulty
+    if (!map.getLayer('trail-lines')) {
+      map.addLayer({
+        id: 'trail-lines',
+        type: 'line',
+        source: 'trails',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': [
+            'match',
+            ['get', 'difficulty'],
+            'easy', TRAIL_COLORS.easy,
+            'moderate', TRAIL_COLORS.moderate,
+            'hard', TRAIL_COLORS.hard,
+            'expert', TRAIL_COLORS.expert,
+            TRAIL_COLORS.unknown,
+          ],
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            8, 2,
+            12, 3,
+            16, 5,
+          ],
+          'line-opacity': 0.85,
+        },
+      });
+    }
+
+    // Trail line casing (outline for visibility)
+    if (!map.getLayer('trail-lines-casing')) {
+      map.addLayer({
+        id: 'trail-lines-casing',
+        type: 'line',
+        source: 'trails',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            8, 4,
+            12, 5,
+            16, 8,
+          ],
+          'line-opacity': 0.4,
+        },
+      }, 'trail-lines'); // Insert BEFORE trail-lines so casing is underneath
+    }
+
+    hideBoundaryLayers(map);
+  }, [hideBoundaryLayers]);
+
+  /** Fetch trails for the current map viewport */
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
     const zoom = map.getZoom();
-    if (zoom < 7) return;
+
+    // At very low zoom, don't load (too many trails)
+    if (zoom < 5) return;
 
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
 
@@ -79,7 +140,6 @@ export default function MapContainer() {
       zoom: DEFAULT_ZOOM,
     });
 
-    // Controls
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.addControl(
       new maplibregl.GeolocateControl({
@@ -93,17 +153,17 @@ export default function MapContainer() {
     map.on('load', () => {
       addSourcesAndLayers(map);
 
-      // Trail click popup
+      // Trail click → popup with info
       map.on('click', 'trail-lines', (e) => {
         if (!e.features?.length) return;
         const props = e.features[0].properties;
 
-        new maplibregl.Popup({ offset: 10 })
+        new maplibregl.Popup({ offset: 10, maxWidth: '260px' })
           .setLngLat(e.lngLat)
           .setHTML(`
-            <div style="font-family: system-ui; max-width: 240px;">
+            <div style="font-family: system-ui;">
               <h3 style="margin: 0 0 6px; font-size: 15px; font-weight: 600;">${props.name || 'Unnamed Trail'}</h3>
-              <div style="display: flex; gap: 8px; font-size: 12px; color: #666;">
+              <div style="display: flex; gap: 8px; font-size: 12px; color: #666; flex-wrap: wrap;">
                 ${props.difficulty ? `<span style="color: ${TRAIL_COLORS[props.difficulty] || TRAIL_COLORS.unknown}; font-weight: 600; text-transform: capitalize;">${props.difficulty}</span>` : ''}
                 ${props.length_miles ? `<span>${props.length_miles} mi</span>` : ''}
                 ${props.elevation_gain_ft ? `<span>${props.elevation_gain_ft} ft gain</span>` : ''}
@@ -113,25 +173,9 @@ export default function MapContainer() {
           .addTo(map);
       });
 
-      // Cluster click to zoom
-      map.on('click', 'trail-clusters', (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ['trail-clusters'] });
-        if (!features.length) return;
-        const clusterId = features[0].properties.cluster_id;
-        const source = map.getSource('trails') as maplibregl.GeoJSONSource;
-        source.getClusterExpansionZoom(clusterId).then((zoom) => {
-          map.easeTo({
-            center: (features[0].geometry as GeoJSON.Point).coordinates as [number, number],
-            zoom,
-          });
-        });
-      });
-
-      // Cursor changes
-      for (const layer of ['trail-lines', 'trail-clusters']) {
-        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
-      }
+      // Cursor pointer on trails
+      map.on('mouseenter', 'trail-lines', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'trail-lines', () => { map.getCanvas().style.cursor = ''; });
 
       setMapLoaded(true);
       loadTrailsForViewport(map);
@@ -147,7 +191,7 @@ export default function MapContainer() {
     };
   }, [addSourcesAndLayers, loadTrailsForViewport]);
 
-  // Switch basemap style
+  // Switch basemap
   const handleBasemapChange = useCallback((style: BasemapStyle) => {
     const map = mapRef.current;
     if (!map) return;
@@ -176,8 +220,7 @@ export default function MapContainer() {
     if (!map || !mapLoaded) return;
     const vis = visible ? 'visible' : 'none';
     map.setLayoutProperty('trail-lines', 'visibility', vis);
-    map.setLayoutProperty('trail-clusters', 'visibility', vis);
-    map.setLayoutProperty('trail-cluster-count', 'visibility', vis);
+    map.setLayoutProperty('trail-lines-casing', 'visibility', vis);
   }, [mapLoaded]);
 
   return (
