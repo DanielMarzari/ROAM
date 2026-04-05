@@ -537,21 +537,27 @@ export default function MapContainer() {
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Compute minimum trail length (miles) based on zoom level.
-   *  At z4 (full USA) only show 10+ mi trails; gradually loosen as user zooms in. */
+   *  z4 = 50mi baseline, each zoom level shows ~3× more detail. */
   const minLengthForZoom = useCallback((zoom: number): number => {
-    if (zoom <= 4) return 10;
-    if (zoom <= 5) return 5;
-    if (zoom <= 6) return 3;
-    if (zoom <= 7) return 1;
-    if (zoom <= 8) return 0.5;
-    if (zoom <= 9) return 0.3;
-    return 0.1; // z10+ shows everything
+    if (zoom >= 10) return 0.1;
+    const min = 50 / Math.pow(3, Math.max(zoom, 4) - 4);
+    return Math.max(Math.round(min * 10) / 10, 0.1);
+  }, []);
+
+  /** Compute max results based on zoom — fewer results at low zoom for speed */
+  const maxResultsForZoom = useCallback((zoom: number): number => {
+    if (zoom <= 4) return 200;
+    if (zoom <= 5) return 500;
+    if (zoom <= 6) return 1000;
+    return 2000;
   }, []);
 
   /** Fetch trails for a bbox string and merge into cache. Returns new feature count. */
   const fetchAndCacheBbox = useCallback(async (bboxStr: string, zoom?: number): Promise<number> => {
-    const minLen = minLengthForZoom(zoom ?? 10);
-    const res = await fetch(`/api/trails/geojson?bbox=${bboxStr}&min_length=${minLen}`);
+    const z = zoom ?? 10;
+    const minLen = minLengthForZoom(z);
+    const maxRes = maxResultsForZoom(z);
+    const res = await fetch(`/api/trails/geojson?bbox=${bboxStr}&min_length=${minLen}&max_results=${maxRes}`);
     const geojson = await res.json();
     if (geojson._error) {
       console.error(`[ROAM] API error: ${geojson._error}`);
@@ -813,7 +819,17 @@ export default function MapContainer() {
     });
 
     map.on('moveend', () => loadTrailsForViewport(map));
-    map.on('zoom', () => setZoomLevel(Math.round(map.getZoom() * 10) / 10));
+    map.on('zoom', () => {
+      const z = map.getZoom();
+      setZoomLevel(Math.round(z * 10) / 10);
+
+      // Update trail layer filters to hide short trails at low zoom
+      const minLen = z >= 10 ? 0.1 : Math.max(Math.round((50 / Math.pow(3, Math.max(z, 4) - 4)) * 10) / 10, 0.1);
+      const filter: maplibregl.FilterSpecification = ['>=', ['coalesce', ['get', 'length_miles'], 0], minLen];
+      for (const layerId of ['trail-lines-solid', 'trail-lines', 'trail-lines-casing', 'trail-length-labels']) {
+        if (map.getLayer(layerId)) map.setFilter(layerId, filter);
+      }
+    });
 
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };

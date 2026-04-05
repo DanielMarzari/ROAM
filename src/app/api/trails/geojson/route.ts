@@ -33,6 +33,8 @@ export async function GET(request: NextRequest) {
 
   const minLengthParam = searchParams.get('min_length');
   const minLength = minLengthParam ? parseFloat(minLengthParam) : MIN_LENGTH_MILES;
+  const maxResultsParam = searchParams.get('max_results');
+  const maxResults = maxResultsParam ? Math.min(parseInt(maxResultsParam), 2000) : 2000;
 
   let west = -180, south = -90, east = 180, north = 90;
   if (bboxParam) {
@@ -66,7 +68,7 @@ export async function GET(request: NextRequest) {
       bbox_south: south,
       bbox_east: east,
       bbox_north: north,
-      max_results: 2000,
+      max_results: maxResults,
       min_length_miles: minLength,
     });
 
