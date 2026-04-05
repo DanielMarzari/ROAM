@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const wkx = require('wkx');
 
 // Street/road suffix patterns — if a name ends with these, it's not a trail
 // UNLESS it also contains trail-like words (Trail, Path, Loop, etc.)
@@ -18,16 +16,6 @@ function isTrail(name: string): boolean {
   return true;
 }
 
-/** Decode WKB hex string to GeoJSON geometry object */
-function wkbToGeoJSON(wkbHex: string): GeoJSON.Geometry | null {
-  try {
-    const geom = wkx.Geometry.parse(Buffer.from(wkbHex, 'hex'));
-    return geom.toGeoJSON() as GeoJSON.Geometry;
-  } catch {
-    return null;
-  }
-}
-
 interface TrailRow {
   id: string;
   name: string;
@@ -39,7 +27,7 @@ interface TrailRow {
   bbox_south: number;
   bbox_east: number;
   bbox_north: number;
-  geom: string; // WKB hex
+  geom: GeoJSON.Geometry; // PostgREST auto-parses geometry to GeoJSON
 }
 
 /**
@@ -80,7 +68,7 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // RPC returns raw rows — DB does zero geometry serialization (34ms)
+    // RPC returns raw rows — PostgREST auto-converts geometry to GeoJSON
     const { data: rows, error } = await supabase.rpc('trails_in_bbox', {
       vp_west: west,
       vp_south: south,
@@ -98,7 +86,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build GeoJSON FeatureCollection from raw rows, decoding WKB client-side
+    // Build GeoJSON FeatureCollection from rows
+    // PostgREST already parsed geometry → GeoJSON, so just strip the crs wrapper
     const features: GeoJSON.Feature[] = [];
     const trailIds: string[] = [];
 
@@ -107,8 +96,11 @@ export async function GET(request: NextRequest) {
       if (!isTrail(row.name || '')) continue;
       if ((row.length_miles ?? 0) < minLength) continue;
 
-      const geometry = wkbToGeoJSON(row.geom);
-      if (!geometry) continue;
+      // PostgREST returns { type, crs, coordinates } — strip crs for MapLibre
+      const geometry: GeoJSON.Geometry = {
+        type: row.geom.type,
+        coordinates: (row.geom as { coordinates: unknown }).coordinates,
+      } as GeoJSON.Geometry;
 
       trailIds.push(row.id);
       features.push({
@@ -145,7 +137,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Already sorted by length DESC from the RPC
     const geojson: GeoJSON.FeatureCollection = {
       type: 'FeatureCollection',
       features,
