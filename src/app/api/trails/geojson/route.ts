@@ -63,14 +63,41 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    const { data, error } = await supabase.rpc('trails_as_geojson', {
-      bbox_west: west,
-      bbox_south: south,
-      bbox_east: east,
-      bbox_north: north,
-      max_results: maxResults,
-      min_length_miles: minLength,
-    });
+    const bboxWidth = east - west;
+
+    // Choose the right RPC based on bbox width (zoom level proxy)
+    let rpcCall;
+    if (bboxWidth > 40) {
+      // Continental (z3-z4): no spatial filter, envelope geometry
+      rpcCall = supabase.rpc('trails_continental', {
+        max_results: maxResults,
+        min_length_miles: minLength,
+      });
+    } else if (bboxWidth > 3) {
+      // Regional (z5-z8): spatial filter + SnapToGrid
+      const gridSize = bboxWidth > 10 ? 0.05 : 0.005;
+      rpcCall = supabase.rpc('trails_regional', {
+        bbox_west: west,
+        bbox_south: south,
+        bbox_east: east,
+        bbox_north: north,
+        max_results: maxResults,
+        min_length_miles: minLength,
+        grid_size: gridSize,
+      });
+    } else {
+      // Local (z9+): full detail
+      rpcCall = supabase.rpc('trails_local', {
+        bbox_west: west,
+        bbox_south: south,
+        bbox_east: east,
+        bbox_north: north,
+        max_results: maxResults,
+        min_length_miles: minLength,
+      });
+    }
+
+    const { data, error } = await rpcCall;
 
     if (error) {
       console.error('[ROAM] GeoJSON query error:', error);

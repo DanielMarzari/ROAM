@@ -537,18 +537,21 @@ export default function MapContainer() {
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Compute minimum trail length (miles) based on zoom level.
-   *  z4 = 50mi baseline, each zoom level shows ~3× more detail. */
+   *  z3 = 100mi, z4 = 50mi baseline, each zoom level shows ~3× more detail. */
   const minLengthForZoom = useCallback((zoom: number): number => {
     if (zoom >= 10) return 0.1;
-    const min = 50 / Math.pow(3, Math.max(zoom, 4) - 4);
+    if (zoom <= 3) return 100;
+    const min = 50 / Math.pow(3, zoom - 4);
     return Math.max(Math.round(min * 10) / 10, 0.1);
   }, []);
 
   /** Compute max results based on zoom — fewer results at low zoom for speed */
   const maxResultsForZoom = useCallback((zoom: number): number => {
-    if (zoom <= 4) return 200;
-    if (zoom <= 5) return 500;
-    if (zoom <= 6) return 1000;
+    if (zoom <= 3) return 50;
+    if (zoom <= 4) return 100;
+    if (zoom <= 5) return 300;
+    if (zoom <= 6) return 500;
+    if (zoom <= 7) return 1000;
     return 2000;
   }, []);
 
@@ -701,9 +704,9 @@ export default function MapContainer() {
       console.log(`[ROAM] Fetched viewport at z${zoom.toFixed(1)} (min ${minLengthForZoom(zoom)}mi) | +${added} new | total cached: ${trailCacheRef.current.size}`);
       flushCacheToMap(map);
 
-      // Debounced prefetch of surrounding cells
-      if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
-      prefetchTimerRef.current = setTimeout(() => prefetchSurrounding(map), 300);
+      // Prefetch disabled temporarily for performance debugging
+      // if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
+      // prefetchTimerRef.current = setTimeout(() => prefetchSurrounding(map), 300);
     } catch (err) {
       console.error('Failed to load trails:', err);
     }
@@ -824,7 +827,7 @@ export default function MapContainer() {
       setZoomLevel(Math.round(z * 10) / 10);
 
       // Update trail layer filters to hide short trails at low zoom
-      const minLen = z >= 10 ? 0.1 : Math.max(Math.round((50 / Math.pow(3, Math.max(z, 4) - 4)) * 10) / 10, 0.1);
+      const minLen = z >= 10 ? 0.1 : z <= 3 ? 100 : Math.max(Math.round((50 / Math.pow(3, z - 4)) * 10) / 10, 0.1);
       const filter: maplibregl.FilterSpecification = ['>=', ['coalesce', ['get', 'length_miles'], 0], minLen];
       for (const layerId of ['trail-lines-solid', 'trail-lines', 'trail-lines-casing', 'trail-length-labels']) {
         if (map.getLayer(layerId)) map.setFilter(layerId, filter);
