@@ -585,6 +585,9 @@ export default function MapContainer() {
     if (geom.type === 'LineString') coords = geom.coordinates as number[][];
     else if (geom.type === 'MultiLineString') {
       for (const seg of geom.coordinates as number[][][]) coords.push(...seg);
+    } else if (geom.type === 'Polygon') {
+      // Polygon rings: first ring is outer boundary
+      for (const ring of geom.coordinates as number[][][]) coords.push(...ring);
     } else if (geom.type === 'Point') {
       const [lng, lat] = geom.coordinates as number[];
       return lng >= w && lng <= e && lat >= s && lat <= n;
