@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const bboxParam = searchParams.get('bbox');
 
+  const minLengthParam = searchParams.get('min_length');
+  const minLength = minLengthParam ? parseFloat(minLengthParam) : MIN_LENGTH_MILES;
+
   let west = -180, south = -90, east = 180, north = 90;
   if (bboxParam) {
     const parts = bboxParam.split(',').map(Number);
@@ -107,7 +110,7 @@ export async function GET(request: NextRequest) {
         (f: { properties: Record<string, unknown> }) => {
           const name = (f.properties?.name as string) || '';
           const length = (f.properties?.length_miles as number) ?? 999;
-          if (length < MIN_LENGTH_MILES) return false;
+          if (length < minLength) return false;
           return isTrail(name);
         }
       );

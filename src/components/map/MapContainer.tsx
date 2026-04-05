@@ -17,11 +17,11 @@ import type { BasemapStyle } from '@/types/map';
 import MapControls from './MapControls';
 import TrailSidebar from './TrailSidebar';
 
-// Boundary / admin layers to hide
-const HIDDEN_LAYERS = ['boundary_3', 'boundary_2', 'boundary_disputed'];
+// Boundary / admin layers to hide (keep boundary_2 = country outlines visible)
+const HIDDEN_LAYERS = ['boundary_3', 'boundary_disputed'];
 
 // Our custom trail layer IDs (hidden by default — only selected trail highlights)
-const TRAIL_LAYER_IDS = ['trail-lines', 'trail-lines-casing'];
+const TRAIL_LAYER_IDS = ['trail-lines-solid', 'trail-lines', 'trail-lines-casing'];
 const SELECTED_TRAIL_LAYER_IDS = ['selected-trail-casing', 'selected-trail'];
 
 // Contour layer IDs
@@ -400,7 +400,23 @@ export default function MapContainer() {
       map.addLayer(contourLabelLayer);
     }
 
-    // Trail lines — thin black, visible by default
+    // Trail lines — solid at low zoom, fades to dashed at higher zoom
+    // Solid layer: full opacity at z3–z8, fades out by z10
+    if (!map.getLayer('trail-lines-solid')) {
+      map.addLayer({
+        id: 'trail-lines-solid',
+        type: 'line',
+        source: 'trails',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#1a1a1a',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.4, 8, 0.8, 12, 1.5, 15, 2, 18, 3],
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 10, 0],
+        },
+      });
+    }
+
+    // Dashed layer: invisible at z8, fades in by z10
     if (!map.getLayer('trail-lines')) {
       map.addLayer({
         id: 'trail-lines',
@@ -410,7 +426,8 @@ export default function MapContainer() {
         paint: {
           'line-color': '#1a1a1a',
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 12, 1.5, 15, 2, 18, 3],
-          'line-opacity': 0.7,
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0, 10, 0.7],
+          'line-dasharray': [2, 1.5],
         },
       });
     }
@@ -491,6 +508,17 @@ export default function MapContainer() {
     }
 
     hideBoundaryLayers(map);
+
+    // Style country outline (boundary_2) — subtle dark line
+    if (map.getLayer('boundary_2')) {
+      try {
+        map.setPaintProperty('boundary_2', 'line-color', '#444444');
+        map.setPaintProperty('boundary_2', 'line-width', ['interpolate', ['linear'], ['zoom'], 2, 0.8, 6, 1.5, 10, 2]);
+        map.setPaintProperty('boundary_2', 'line-opacity', 0.6);
+        map.setLayoutProperty('boundary_2', 'visibility', 'visible');
+      } catch { /* skip */ }
+    }
+
     setupBasemapPaths(map, showBasemapPathsRef.current);
     desaturateRoads(map);
 
@@ -508,9 +536,22 @@ export default function MapContainer() {
   const fetchedCellsRef = useRef<Set<string>>(new Set());
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** Compute minimum trail length (miles) based on zoom level.
+   *  At z4 (full USA) only show 10+ mi trails; gradually loosen as user zooms in. */
+  const minLengthForZoom = useCallback((zoom: number): number => {
+    if (zoom <= 4) return 10;
+    if (zoom <= 5) return 5;
+    if (zoom <= 6) return 3;
+    if (zoom <= 7) return 1;
+    if (zoom <= 8) return 0.5;
+    if (zoom <= 9) return 0.3;
+    return 0.1; // z10+ shows everything
+  }, []);
+
   /** Fetch trails for a bbox string and merge into cache. Returns new feature count. */
-  const fetchAndCacheBbox = useCallback(async (bboxStr: string): Promise<number> => {
-    const res = await fetch(`/api/trails/geojson?bbox=${bboxStr}`);
+  const fetchAndCacheBbox = useCallback(async (bboxStr: string, zoom?: number): Promise<number> => {
+    const minLen = minLengthForZoom(zoom ?? 10);
+    const res = await fetch(`/api/trails/geojson?bbox=${bboxStr}&min_length=${minLen}`);
     const geojson = await res.json();
     if (geojson._error) {
       console.error(`[ROAM] API error: ${geojson._error}`);
@@ -601,10 +642,10 @@ export default function MapContainer() {
     const vw = e - w;  // viewport width in degrees
     const vh = n - s;  // viewport height in degrees
 
-    // Build a 5×5 grid centered on the viewport (covers ±2 viewports in each direction)
+    // Build a 3×3 grid centered on the viewport (covers ±1 viewport in each direction)
     const cells: string[] = [];
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
         if (dx === 0 && dy === 0) continue; // skip center (already loaded)
         const cellW = w + dx * vw;
         const cellS = s + dy * vh;
@@ -625,7 +666,7 @@ export default function MapContainer() {
     let totalAdded = 0;
     for (let i = 0; i < cells.length; i += 4) {
       const batch = cells.slice(i, i + 4);
-      const results = await Promise.all(batch.map(bbox => fetchAndCacheBbox(bbox)));
+      const results = await Promise.all(batch.map(bbox => fetchAndCacheBbox(bbox, zoom)));
       totalAdded += results.reduce((a, b) => a + b, 0);
       // Flush to map after each batch so trails appear progressively
       if (totalAdded > 0) flushCacheToMap(map);
@@ -634,7 +675,7 @@ export default function MapContainer() {
     if (totalAdded > 0) {
       console.log(`[ROAM] Prefetch complete: +${totalAdded} new trails | total cached: ${trailCacheRef.current.size}`);
     }
-  }, [fetchAndCacheBbox, flushCacheToMap, bboxCellKey]);
+  }, [fetchAndCacheBbox, flushCacheToMap, bboxCellKey, minLengthForZoom]);
 
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
@@ -650,8 +691,8 @@ export default function MapContainer() {
     fetchedCellsRef.current.add(centerKey);
 
     try {
-      const added = await fetchAndCacheBbox(bbox);
-      console.log(`[ROAM] Fetched viewport at z${zoom.toFixed(1)} | +${added} new | total cached: ${trailCacheRef.current.size}`);
+      const added = await fetchAndCacheBbox(bbox, zoom);
+      console.log(`[ROAM] Fetched viewport at z${zoom.toFixed(1)} (min ${minLengthForZoom(zoom)}mi) | +${added} new | total cached: ${trailCacheRef.current.size}`);
       flushCacheToMap(map);
 
       // Debounced prefetch of surrounding cells
@@ -660,7 +701,7 @@ export default function MapContainer() {
     } catch (err) {
       console.error('Failed to load trails:', err);
     }
-  }, [fetchAndCacheBbox, flushCacheToMap, prefetchSurrounding, bboxCellKey]);
+  }, [fetchAndCacheBbox, flushCacheToMap, prefetchSurrounding, bboxCellKey, minLengthForZoom]);
 
   // ── User marker ──
 
@@ -849,7 +890,7 @@ export default function MapContainer() {
 
   const handleTrailSelect = useCallback((trail: TrailItem) => {
     const map = mapRef.current;
-    if (!map || !trail.center) return;
+    if (!map) return;
 
     // Highlight this trail on the map
     selectedTrailIdRef.current = trail.id;
@@ -864,7 +905,24 @@ export default function MapContainer() {
       );
     }
 
-    map.flyTo({ center: trail.center, zoom: 15, speed: 1.2 });
+    // Zoom to fit the entire trail geometry
+    if (feature) {
+      const geom = feature.geometry;
+      let coords: number[][] = [];
+      if (geom.type === 'LineString') coords = geom.coordinates as number[][];
+      else if (geom.type === 'MultiLineString') {
+        for (const seg of geom.coordinates as number[][][]) coords.push(...seg);
+      }
+      if (coords.length >= 2) {
+        const bounds = new maplibregl.LngLatBounds([coords[0][0], coords[0][1]], [coords[0][0], coords[0][1]]);
+        for (const c of coords) bounds.extend([c[0], c[1]]);
+        map.fitBounds(bounds, { padding: 80, maxZoom: 16, duration: 1200 });
+        return;
+      }
+    }
+
+    // Fallback: fly to center if no geometry
+    if (trail.center) map.flyTo({ center: trail.center, zoom: 15, speed: 1.2 });
   }, []);
 
   const handleGroupSelect = useCallback((group: TrailGroup) => {
