@@ -26,7 +26,7 @@ const HIDDEN_LAYERS = ['boundary_3', 'boundary_disputed'];
 
 // Our custom trail layer IDs (hidden by default — only selected trail highlights)
 const TRAIL_LAYER_IDS = ['trail-lines-solid', 'trail-lines', 'trail-lines-casing'];
-const SELECTED_TRAIL_LAYER_IDS = ['selected-trail-casing', 'selected-trail'];
+const HOVER_LAYER_IDS = ['trail-hover-casing', 'trail-hover-line'];
 
 // Contour layer IDs
 const CONTOUR_LAYER_IDS = ['contour-lines', 'contour-labels'];
@@ -104,8 +104,7 @@ export default function MapContainer() {
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const basemapPathLayersRef = useRef<string[]>([]);
   // trailGeoJsonRef removed — trails now render from vector tiles
-  // trailCacheRef removed — replaced by trailMetaCacheRef + geomCacheRef in data loading section
-  const selectedTrailIdRef = useRef<string | null>(null);
+  const hoveredOsmIdRef = useRef<number | null>(null);
 
   // Refs for stable callbacks
   const showTrailsRef = useRef(true);
@@ -295,10 +294,7 @@ export default function MapContainer() {
       map.addSource('contour-source', contourTileSource());
     }
 
-    // Selected trail GeoJSON source (for highlight from DB geometry)
-    if (!map.getSource('selected-trail')) {
-      map.addSource('selected-trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    }
+    // (selected-trail GeoJSON source removed — highlights now use vector tile filter)
 
     // ── Overlay layers (added early so trails render on top) ──
     if (!map.getLayer('satellite-layer')) map.addLayer(satelliteLayer);
@@ -344,12 +340,16 @@ export default function MapContainer() {
       });
     }
 
-    // ── Selected trail highlight layers (GeoJSON from DB) ──
-    if (!map.getLayer('selected-trail-casing')) {
+    // ── Hover highlight layers (vector tile, filtered by OSM_ID) ──
+    // These use the same osm-trails source but filter to only the hovered trail.
+    // Initially hidden via impossible filter; updated on mousemove.
+    if (!map.getLayer('trail-hover-casing')) {
       map.addLayer({
-        id: 'selected-trail-casing',
+        id: 'trail-hover-casing',
         type: 'line',
-        source: 'selected-trail',
+        source: 'osm-trails',
+        'source-layer': 'trail',
+        filter: ['==', ['get', 'OSM_ID'], -1], // impossible match = hidden
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': '#065f46',
@@ -358,11 +358,13 @@ export default function MapContainer() {
         },
       });
     }
-    if (!map.getLayer('selected-trail')) {
+    if (!map.getLayer('trail-hover-line')) {
       map.addLayer({
-        id: 'selected-trail',
+        id: 'trail-hover-line',
         type: 'line',
-        source: 'selected-trail',
+        source: 'osm-trails',
+        'source-layer': 'trail',
+        filter: ['==', ['get', 'OSM_ID'], -1],
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': '#22c55e',
@@ -400,7 +402,6 @@ export default function MapContainer() {
   // DB is only used for: sidebar metadata + selected trail highlighting.
 
   const trailMetaCacheRef = useRef<Map<string, TrailItem>>(new Map());
-  const geomCacheRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
   const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewportAbortRef = useRef<AbortController | null>(null);
 
@@ -417,41 +418,6 @@ export default function MapContainer() {
     if (zoom <= 5) return 300;
     if (zoom <= 7) return 1000;
     return 2000;
-  }, []);
-
-  /** Fetch geometry for a single trail (for selected trail highlighting) */
-  const fetchTrailGeometry = useCallback(async (map: maplibregl.Map, trailId: string) => {
-    if (geomCacheRef.current.has(trailId)) {
-      const feature = geomCacheRef.current.get(trailId)!;
-      const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
-      if (src) src.setData({ type: 'FeatureCollection', features: [feature] });
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/trails/geometry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [trailId] }),
-      });
-      const geojson = await res.json();
-      const feature = (geojson.features || [])[0];
-      if (feature) {
-        const meta = trailMetaCacheRef.current.get(trailId);
-        if (meta) {
-          feature.properties = {
-            id: meta.id, name: meta.name, difficulty: meta.difficulty,
-            length_miles: meta.length_miles, elevation_gain_ft: meta.elevation_gain_ft,
-            route_type: meta.route_type, region: meta.region,
-          };
-        }
-        geomCacheRef.current.set(trailId, feature);
-        const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
-        if (src) src.setData({ type: 'FeatureCollection', features: [feature] });
-      }
-    } catch (err) {
-      console.error('[ROAM] Geometry fetch error:', err);
-    }
   }, []);
 
   /** Fetch sidebar metadata from DB for current viewport (debounced) */
@@ -540,11 +506,44 @@ export default function MapContainer() {
     map.on('load', () => {
       addSourcesAndLayers(map);
 
-      // Click on trail → show popup with trail name from vector tile properties
+      // ── Hover highlight: update filter on mousemove to match OSM_ID ──
+      const interactiveLayers = ['trail-lines-solid', 'trail-lines', 'trail-lines-casing'];
+
+      const setHoveredOsmId = (osmId: number | null) => {
+        if (osmId === hoveredOsmIdRef.current) return; // no change
+        hoveredOsmIdRef.current = osmId;
+        const filter: maplibregl.FilterSpecification = osmId !== null
+          ? ['==', ['get', 'OSM_ID'], osmId]
+          : ['==', ['get', 'OSM_ID'], -1]; // impossible match = hidden
+        if (map.getLayer('trail-hover-casing')) map.setFilter('trail-hover-casing', filter);
+        if (map.getLayer('trail-hover-line')) map.setFilter('trail-hover-line', filter);
+      };
+
+      map.on('mousemove', (e) => {
+        const layers = interactiveLayers.filter(id => map.getLayer(id));
+        const feats = layers.length > 0 ? map.queryRenderedFeatures(e.point, { layers }) : [];
+
+        if (feats.length > 0) {
+          const osmId = feats[0].properties?.OSM_ID;
+          if (typeof osmId === 'number') {
+            setHoveredOsmId(osmId);
+            map.getCanvas().style.cursor = 'pointer';
+          }
+        } else {
+          setHoveredOsmId(null);
+          map.getCanvas().style.cursor = '';
+        }
+      });
+
+      map.on('mouseleave', () => {
+        setHoveredOsmId(null);
+        map.getCanvas().style.cursor = '';
+      });
+
+      // Click on trail → show popup with trail info from vector tile properties
       map.on('click', (e) => {
-        // Query our vector tile trail layers at the click point
-        const trailLayers = ['trail-lines-solid', 'trail-lines', 'trail-lines-casing'].filter(id => map.getLayer(id));
-        const trailFeats = trailLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: trailLayers }) : [];
+        const layers = interactiveLayers.filter(id => map.getLayer(id));
+        const trailFeats = layers.length > 0 ? map.queryRenderedFeatures(e.point, { layers }) : [];
 
         // Also check basemap path layers
         const pathLayers = basemapPathLayersRef.current.filter(id => map.getLayer(id));
@@ -558,7 +557,6 @@ export default function MapContainer() {
           const surface = props.surface || '';
           const sacScale = props.sac_scale || '';
 
-          // Show popup with vector tile properties
           new maplibregl.Popup({ offset: 10, maxWidth: '260px' })
             .setLngLat(e.lngLat)
             .setHTML(`
@@ -572,11 +570,6 @@ export default function MapContainer() {
               </div>
             `)
             .addTo(map);
-        } else {
-          // Clicked elsewhere — deselect
-          selectedTrailIdRef.current = null;
-          const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
-          if (src) src.setData({ type: 'FeatureCollection', features: [] });
         }
       });
 
@@ -673,7 +666,7 @@ export default function MapContainer() {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
     const vis = visible ? 'visible' : 'none';
-    for (const id of [...TRAIL_LAYER_IDS, 'trail-name-labels', ...SELECTED_TRAIL_LAYER_IDS]) {
+    for (const id of [...TRAIL_LAYER_IDS, 'trail-name-labels', ...HOVER_LAYER_IDS]) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
     }
   }, [mapLoaded]);
@@ -691,11 +684,8 @@ export default function MapContainer() {
     const map = mapRef.current;
     if (!map) return;
 
-    // Highlight this trail on the map
-    selectedTrailIdRef.current = trail.id;
-    fetchTrailGeometry(map, trail.id);
-
     // Zoom to fit using bbox (always available from metadata)
+    // The hover highlight will appear when the user mouses over the trail
     if (trail.bbox) {
       const [w, s, e, n] = trail.bbox;
       map.fitBounds([[w, s], [e, n]], { padding: 80, maxZoom: 16, duration: 1200 });
@@ -704,7 +694,7 @@ export default function MapContainer() {
 
     // Fallback: fly to center
     if (trail.center) map.flyTo({ center: trail.center, zoom: 15, speed: 1.2 });
-  }, [fetchTrailGeometry]);
+  }, []);
 
   const handleGroupSelect = useCallback((group: TrailGroup) => {
     const map = mapRef.current;
