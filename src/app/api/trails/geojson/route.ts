@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const wkx = require('wkx');
 
 // Street/road suffix patterns — if a name ends with these, it's not a trail
 // UNLESS it also contains trail-like words (Trail, Path, Loop, etc.)
@@ -10,18 +12,34 @@ const MIN_LENGTH_MILES = 0.1;
 
 function isTrail(name: string): boolean {
   if (!name) return false;
-
-  // Always exclude these
   if (EXCLUDE_NAMES.test(name)) return false;
-
-  // If it has trail-like words, keep it regardless
   if (TRAIL_WORDS.test(name)) return true;
-
-  // If it looks like a street name (ends with St, Road, Ave, etc.), filter it
   if (STREET_SUFFIXES.test(name.trim())) return false;
-
-  // Keep everything else
   return true;
+}
+
+/** Decode WKB hex string to GeoJSON geometry object */
+function wkbToGeoJSON(wkbHex: string): GeoJSON.Geometry | null {
+  try {
+    const geom = wkx.Geometry.parse(Buffer.from(wkbHex, 'hex'));
+    return geom.toGeoJSON() as GeoJSON.Geometry;
+  } catch {
+    return null;
+  }
+}
+
+interface TrailRow {
+  id: string;
+  name: string;
+  difficulty: string | null;
+  length_miles: number;
+  elevation_gain_ft: number | null;
+  route_type: string | null;
+  bbox_west: number;
+  bbox_south: number;
+  bbox_east: number;
+  bbox_north: number;
+  geom: string; // WKB hex
 }
 
 /**
@@ -45,7 +63,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Verify env vars are present
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -63,18 +80,14 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    const bboxWidth = east - west;
-    // Use simplified geometry for wide viewports (low zoom), full detail when zoomed in
-    const useSimple = bboxWidth > 3;
-
-    const { data, error } = await supabase.rpc('trails_in_bbox', {
+    // RPC returns raw rows — DB does zero geometry serialization (34ms)
+    const { data: rows, error } = await supabase.rpc('trails_in_bbox', {
       vp_west: west,
       vp_south: south,
       vp_east: east,
       vp_north: north,
       max_results: maxResults,
       min_length_miles: minLength,
-      use_simple: useSimple,
     });
 
     if (error) {
@@ -85,51 +98,58 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const geojson = data || { type: 'FeatureCollection', features: [] };
+    // Build GeoJSON FeatureCollection from raw rows, decoding WKB client-side
+    const features: GeoJSON.Feature[] = [];
+    const trailIds: string[] = [];
+
+    for (const row of (rows as TrailRow[]) || []) {
+      if (!row.geom) continue;
+      if (!isTrail(row.name || '')) continue;
+      if ((row.length_miles ?? 0) < minLength) continue;
+
+      const geometry = wkbToGeoJSON(row.geom);
+      if (!geometry) continue;
+
+      trailIds.push(row.id);
+      features.push({
+        type: 'Feature',
+        id: row.id,
+        geometry,
+        properties: {
+          id: row.id,
+          name: row.name,
+          difficulty: row.difficulty,
+          length_miles: row.length_miles,
+          elevation_gain_ft: row.elevation_gain_ft,
+          route_type: row.route_type,
+        },
+      });
+    }
 
     // Enrich with region for sidebar grouping
-    if (geojson.features?.length > 0) {
-      const trailIds = geojson.features
-        .map((f: { properties: { id: string } }) => f.properties?.id)
-        .filter(Boolean);
+    if (trailIds.length > 0) {
+      const { data: regionData } = await supabase
+        .from('trails')
+        .select('id, region')
+        .in('id', trailIds);
 
-      if (trailIds.length > 0) {
-        const { data: regionData } = await supabase
-          .from('trails')
-          .select('id, region')
-          .in('id', trailIds);
-
-        if (regionData) {
-          const regionMap = new Map(
-            regionData.map((r: { id: string; region: string }) => [r.id, r.region])
-          );
-          for (const feature of geojson.features) {
-            if (feature.properties?.id) {
-              feature.properties.region = regionMap.get(feature.properties.id) || null;
-            }
+      if (regionData) {
+        const regionMap = new Map(
+          regionData.map((r: { id: string; region: string }) => [r.id, r.region])
+        );
+        for (const feature of features) {
+          if (feature.properties?.id) {
+            feature.properties.region = regionMap.get(feature.properties.id) || null;
           }
         }
       }
     }
 
-    // Filter out non-trail features (streets, parking, short segments)
-    if (geojson.features) {
-      geojson.features = geojson.features.filter(
-        (f: { properties: Record<string, unknown> }) => {
-          const name = (f.properties?.name as string) || '';
-          const length = (f.properties?.length_miles as number) ?? 999;
-          if (length < minLength) return false;
-          return isTrail(name);
-        }
-      );
-
-      // Sort longest trails first so the 2000-result limit prioritizes
-      // major trails over short connector segments at zoomed-out levels
-      geojson.features.sort(
-        (a: { properties: Record<string, unknown> }, b: { properties: Record<string, unknown> }) =>
-          ((b.properties?.length_miles as number) ?? 0) - ((a.properties?.length_miles as number) ?? 0)
-      );
-    }
+    // Already sorted by length DESC from the RPC
+    const geojson: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features,
+    };
 
     return NextResponse.json(geojson, {
       headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
