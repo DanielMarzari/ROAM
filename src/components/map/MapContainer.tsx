@@ -12,7 +12,7 @@ import {
   MINOR_ROAD_LAYERS, MINOR_ROAD_COLOR, MINOR_ROAD_CASING_COLOR,
   CONTOUR_CONFIG,
 } from '@/lib/maps/config';
-import { satelliteSource, satelliteLayer, contourLineLayer, contourLabelLayer } from '@/lib/maps/layers';
+import { satelliteSource, satelliteLayer, hillshadeSource, hillshadeLayer, contourLineLayer, contourLabelLayer } from '@/lib/maps/layers';
 import type { BasemapStyle } from '@/types/map';
 import MapControls from './MapControls';
 import TrailSidebar from './TrailSidebar';
@@ -367,9 +367,18 @@ export default function MapContainer() {
       });
     }
 
+    // Hillshade raster-dem source (same DEM tiles, different source type)
+    if (!map.getSource('hillshade-dem')) {
+      map.addSource('hillshade-dem', hillshadeSource());
+    }
+
     // Overlay layers (added early so trails render on top)
     if (!map.getLayer('satellite-layer')) {
       map.addLayer(satelliteLayer);
+    }
+    // Hillshade beneath contours and trails
+    if (!map.getLayer('hillshade-layer')) {
+      map.addLayer(hillshadeLayer);
     }
     if (!map.getLayer('contour-lines')) {
       map.addLayer(contourLineLayer);
@@ -516,6 +525,10 @@ export default function MapContainer() {
   const geomCacheRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
   // Track in-flight geometry requests to avoid duplicates
   const geomInFlightRef = useRef<Set<string>>(new Set());
+  // Debounce timer for viewport loads (wait for zoom/pan to settle)
+  const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // AbortController for cancelling in-flight viewport requests
+  const viewportAbortRef = useRef<AbortController | null>(null);
 
   /** Compute minimum trail length (miles) based on zoom level.
    *  z3 = 100mi, z4 = 50mi baseline, each zoom level shows ~3× more detail. */
@@ -562,8 +575,9 @@ export default function MapContainer() {
     }
   }, []);
 
-  /** Fetch geometry for trail IDs that aren't cached, then render */
-  const fetchGeometries = useCallback(async (map: maplibregl.Map, trailIds: string[]) => {
+  /** Fetch geometry for trail IDs that aren't cached, then render.
+   *  Accepts an optional AbortSignal to cancel in-flight requests on viewport change. */
+  const fetchGeometries = useCallback(async (map: maplibregl.Map, trailIds: string[], signal?: AbortSignal) => {
     // Filter to IDs we don't have geometry for and aren't already fetching
     const needed = trailIds.filter(id => !geomCacheRef.current.has(id) && !geomInFlightRef.current.has(id));
     if (needed.length === 0) return;
@@ -574,11 +588,15 @@ export default function MapContainer() {
     try {
       // Fetch in batches of 100
       for (let i = 0; i < needed.length; i += 100) {
+        // Bail early if aborted between batches
+        if (signal?.aborted) break;
+
         const batch = needed.slice(i, i + 100);
         const res = await fetch('/api/trails/geometry', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: batch }),
+          signal,
         });
         const geojson = await res.json();
 
@@ -605,17 +623,26 @@ export default function MapContainer() {
         flushGeometryToMap(map);
       }
     } catch (err) {
+      // Ignore abort errors — they're intentional
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       console.error('[ROAM] Geometry fetch error:', err);
     } finally {
       for (const id of needed) geomInFlightRef.current.delete(id);
     }
   }, [flushGeometryToMap]);
 
-  /** Phase 1: Fetch lightweight metadata, update sidebar, then trigger geometry fetch */
-  const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
+  /** Phase 1: Fetch lightweight metadata, update sidebar, then trigger geometry fetch.
+   *  Cancels any previous in-flight viewport request first. */
+  const loadTrailsForViewportNow = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
     const zoom = map.getZoom();
     if (zoom < MIN_DATA_ZOOM) return;
+
+    // Abort any previous in-flight viewport request (metadata + geometry)
+    if (viewportAbortRef.current) viewportAbortRef.current.abort();
+    const controller = new AbortController();
+    viewportAbortRef.current = controller;
+    const { signal } = controller;
 
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
     const minLen = minLengthForZoom(zoom);
@@ -623,7 +650,7 @@ export default function MapContainer() {
 
     try {
       // Phase 1: Fast metadata query
-      const res = await fetch(`/api/trails/geojson?bbox=${bbox}&min_length=${minLen}&max_results=${maxRes}`);
+      const res = await fetch(`/api/trails/geojson?bbox=${bbox}&min_length=${minLen}&max_results=${maxRes}`, { signal });
       const data = await res.json();
       if (data._error) {
         console.error(`[ROAM] API error: ${data._error}`);
@@ -652,13 +679,36 @@ export default function MapContainer() {
       // Update sidebar immediately (no geometry needed)
       setTrailGroups(extractTrailGroups(trails));
 
-      // Phase 2: Async geometry fetch for visible trails
+      // Phase 2: Async geometry fetch for visible trails (shares the same abort signal)
       const trailIds = trails.map(t => t.id);
-      fetchGeometries(map, trailIds);
+      fetchGeometries(map, trailIds, signal);
     } catch (err) {
+      // Ignore abort errors — they're intentional when viewport changes
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       console.error('Failed to load trails:', err);
     }
   }, [minLengthForZoom, maxResultsForZoom, fetchGeometries]);
+
+  /** Debounced wrapper — waits 300ms after last moveend before fetching.
+   *  Immediate=true skips debounce (used for initial load & basemap switch). */
+  const loadTrailsForViewport = useCallback((map: maplibregl.Map, immediate?: boolean) => {
+    // Clear any pending debounce timer
+    if (viewportTimerRef.current) {
+      clearTimeout(viewportTimerRef.current);
+      viewportTimerRef.current = null;
+    }
+
+    if (immediate) {
+      loadTrailsForViewportNow(map);
+      return;
+    }
+
+    // Debounce: wait 300ms for zoom/pan to settle
+    viewportTimerRef.current = setTimeout(() => {
+      viewportTimerRef.current = null;
+      loadTrailsForViewportNow(map);
+    }, 300);
+  }, [loadTrailsForViewportNow]);
 
   // ── User marker ──
 
@@ -761,11 +811,11 @@ export default function MapContainer() {
             createUserMarker(map, longitude, latitude);
             map.flyTo({ center: [longitude, latitude], zoom: 11, speed: 1.5 });
           },
-          () => loadTrailsForViewport(map),
+          () => loadTrailsForViewport(map, true),
           { enableHighAccuracy: true, timeout: 8000 }
         );
       } else {
-        loadTrailsForViewport(map);
+        loadTrailsForViewport(map, true);
       }
     });
 
@@ -783,7 +833,13 @@ export default function MapContainer() {
     });
 
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      // Clean up debounce timer and abort in-flight requests
+      if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+      if (viewportAbortRef.current) viewportAbortRef.current.abort();
+      map.remove();
+      mapRef.current = null;
+    };
   }, [addSourcesAndLayers, loadTrailsForViewport, createUserMarker]);
 
   // ── Basemap switch ──
@@ -805,9 +861,12 @@ export default function MapContainer() {
         for (const id of CONTOUR_LAYER_IDS) {
           if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
         }
+        if (map.getLayer('hillshade-layer')) {
+          map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
+        }
       }
 
-      loadTrailsForViewport(map);
+      loadTrailsForViewport(map, true);
 
       if (userMarkerRef.current) {
         const lngLat = userMarkerRef.current.getLngLat();
@@ -832,6 +891,10 @@ export default function MapContainer() {
     const vis = visible ? 'visible' : 'none';
     for (const id of CONTOUR_LAYER_IDS) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
+    // Toggle hillshade together with contours
+    if (map.getLayer('hillshade-layer')) {
+      map.setLayoutProperty('hillshade-layer', 'visibility', vis);
     }
   }, [mapLoaded]);
 

@@ -1,5 +1,5 @@
 import type { LayerSpecification, SourceSpecification } from 'maplibre-gl';
-import { OVERLAY_TILES } from './config';
+import { OVERLAY_TILES, CONTOUR_CONFIG } from './config';
 
 /**
  * Satellite raster source.
@@ -23,6 +23,38 @@ export const satelliteLayer: LayerSpecification = {
   source: 'satellite',
   layout: { visibility: 'none' },
   paint: { 'raster-opacity': 0.8 },
+};
+
+/**
+ * Hillshade raster-dem source (same DEM tiles as contours).
+ */
+export function hillshadeSource(): SourceSpecification {
+  return {
+    type: 'raster-dem',
+    tiles: [CONTOUR_CONFIG.demUrl],
+    tileSize: 256,
+    maxzoom: CONTOUR_CONFIG.maxzoom,
+    encoding: CONTOUR_CONFIG.encoding,
+    attribution: '© <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a>',
+  };
+}
+
+/**
+ * Hillshade layer — subtle terrain shading for elevation context.
+ * Hidden by default; toggled together with contours.
+ */
+export const hillshadeLayer: LayerSpecification = {
+  id: 'hillshade-layer',
+  type: 'hillshade',
+  source: 'hillshade-dem',
+  layout: { visibility: 'none' },
+  paint: {
+    'hillshade-exaggeration': 0.3,
+    'hillshade-shadow-color': 'rgba(0, 0, 0, 0.3)',
+    'hillshade-highlight-color': 'rgba(255, 255, 255, 0.2)',
+    'hillshade-illumination-direction': 315,
+    'hillshade-illumination-anchor': 'viewport',
+  },
 };
 
 /**
