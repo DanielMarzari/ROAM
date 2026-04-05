@@ -457,7 +457,7 @@ export default function MapContainer() {
         layout: {
           'text-field': ['get', 'label'],
           'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 15, 11, 17, 13],
-          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-font': ['Noto Sans Bold'],
           'text-anchor': 'center',
           'text-allow-overlap': false,
           'text-ignore-placement': false,

@@ -67,6 +67,7 @@ export async function GET(request: NextRequest) {
       bbox_east: east,
       bbox_north: north,
       max_results: 2000,
+      min_length_miles: minLength,
     });
 
     if (error) {
