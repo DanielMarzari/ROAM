@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 
 // Street/road suffix patterns — if a name ends with these, it's not a trail
-// UNLESS it also contains trail-like words (Trail, Path, Loop, etc.)
 const STREET_SUFFIXES = /\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|court|ct|place|pl|pike|highway|hwy|way)\s*$/i;
 const TRAIL_WORDS = /trail|path|loop|hike|trek|ridge|run|creek|falls|mountain|hollow|gap|knob|summit|overlook|greenway/i;
 const EXCLUDE_NAMES = /parking|sidewalk|^abandoned\s/i;
@@ -23,15 +22,17 @@ interface TrailRow {
   length_miles: number;
   elevation_gain_ft: number | null;
   route_type: string | null;
+  region: string | null;
   bbox_west: number;
   bbox_south: number;
   bbox_east: number;
   bbox_north: number;
-  geom: GeoJSON.Geometry; // PostgREST auto-parses geometry to GeoJSON
 }
 
 /**
  * GET /api/trails/geojson?bbox=west,south,east,north
+ * Returns lightweight trail metadata (no geometry).
+ * Geometry is fetched separately via /api/trails/geometry.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -55,20 +56,14 @@ export async function GET(request: NextRequest) {
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!url || !key) {
-      console.error('[ROAM] Missing env vars:', {
-        hasUrl: !!url,
-        hasServiceKey: !!key,
-        hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      });
       return NextResponse.json(
-        { type: 'FeatureCollection', features: [], _error: 'Missing Supabase credentials' },
+        { trails: [], _error: 'Missing Supabase credentials' },
         { status: 500 }
       );
     }
 
     const supabase = createServiceClient();
 
-    // RPC returns raw rows — PostgREST auto-converts geometry to GeoJSON
     const { data: rows, error } = await supabase.rpc('trails_in_bbox', {
       vp_west: west,
       vp_south: south,
@@ -79,76 +74,34 @@ export async function GET(request: NextRequest) {
     });
 
     if (error) {
-      console.error('[ROAM] GeoJSON query error:', error);
+      console.error('[ROAM] Trail query error:', error);
       return NextResponse.json(
-        { type: 'FeatureCollection', features: [], _error: error.message },
+        { trails: [], _error: error.message },
         { status: 500 }
       );
     }
 
-    // Build GeoJSON FeatureCollection from rows
-    // PostgREST already parsed geometry → GeoJSON, so just strip the crs wrapper
-    const features: GeoJSON.Feature[] = [];
-    const trailIds: string[] = [];
+    // Filter non-trails and build lightweight response
+    const trails = ((rows as TrailRow[]) || [])
+      .filter(r => isTrail(r.name || '') && (r.length_miles ?? 0) >= minLength)
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        difficulty: r.difficulty,
+        length_miles: r.length_miles,
+        elevation_gain_ft: r.elevation_gain_ft,
+        route_type: r.route_type,
+        region: r.region,
+        bbox: [r.bbox_west, r.bbox_south, r.bbox_east, r.bbox_north],
+      }));
 
-    for (const row of (rows as TrailRow[]) || []) {
-      if (!row.geom) continue;
-      if (!isTrail(row.name || '')) continue;
-      if ((row.length_miles ?? 0) < minLength) continue;
-
-      // PostgREST returns { type, crs, coordinates } — strip crs for MapLibre
-      const geometry: GeoJSON.Geometry = {
-        type: row.geom.type,
-        coordinates: (row.geom as { coordinates: unknown }).coordinates,
-      } as GeoJSON.Geometry;
-
-      trailIds.push(row.id);
-      features.push({
-        type: 'Feature',
-        id: row.id,
-        geometry,
-        properties: {
-          id: row.id,
-          name: row.name,
-          difficulty: row.difficulty,
-          length_miles: row.length_miles,
-          elevation_gain_ft: row.elevation_gain_ft,
-          route_type: row.route_type,
-        },
-      });
-    }
-
-    // Enrich with region for sidebar grouping
-    if (trailIds.length > 0) {
-      const { data: regionData } = await supabase
-        .from('trails')
-        .select('id, region')
-        .in('id', trailIds);
-
-      if (regionData) {
-        const regionMap = new Map(
-          regionData.map((r: { id: string; region: string }) => [r.id, r.region])
-        );
-        for (const feature of features) {
-          if (feature.properties?.id) {
-            feature.properties.region = regionMap.get(feature.properties.id) || null;
-          }
-        }
-      }
-    }
-
-    const geojson: GeoJSON.FeatureCollection = {
-      type: 'FeatureCollection',
-      features,
-    };
-
-    return NextResponse.json(geojson, {
+    return NextResponse.json({ trails }, {
       headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
     });
   } catch (err) {
-    console.error('[ROAM] GeoJSON endpoint error:', err);
+    console.error('[ROAM] Trail endpoint error:', err);
     return NextResponse.json(
-      { type: 'FeatureCollection', features: [], _error: String(err) },
+      { trails: [], _error: String(err) },
       { status: 500 }
     );
   }

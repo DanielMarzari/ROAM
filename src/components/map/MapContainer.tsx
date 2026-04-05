@@ -135,6 +135,7 @@ export interface TrailItem {
   route_type: string | null;
   region: string | null;
   center: [number, number] | null;
+  bbox: [number, number, number, number] | null; // [west, south, east, north]
 }
 
 export interface TrailGroup {
@@ -145,45 +146,22 @@ export interface TrailGroup {
   center: [number, number] | null;
 }
 
-/** Extract trail list from GeoJSON, grouped by region */
-function extractTrailGroups(geojson: GeoJSON.FeatureCollection): TrailGroup[] {
+/** Extract trail list from metadata, grouped by region */
+function extractTrailGroups(trails: TrailItem[]): TrailGroup[] {
   const regionMap = new Map<string, TrailItem[]>();
 
-  for (const f of geojson.features) {
-    const p = f.properties || {};
-    let center: [number, number] | null = null;
-    const geom = f.geometry;
-    if (geom.type === 'LineString') {
-      center = midpoint(geom.coordinates as number[][]);
-    } else if (geom.type === 'MultiLineString') {
-      const segs = geom.coordinates as number[][][];
-      let longest: number[][] = [];
-      for (const seg of segs) if (seg.length > longest.length) longest = seg;
-      center = midpoint(longest);
-    }
-
-    const trail: TrailItem = {
-      id: p.id || f.id?.toString() || '',
-      name: p.name || 'Unnamed Trail',
-      difficulty: p.difficulty || null,
-      length_miles: p.length_miles || null,
-      elevation_gain_ft: p.elevation_gain_ft || null,
-      route_type: p.route_type || null,
-      region: p.region || null,
-      center,
-    };
-
+  for (const trail of trails) {
     const key = trail.region || 'Other Trails';
     if (!regionMap.has(key)) regionMap.set(key, []);
     regionMap.get(key)!.push(trail);
   }
 
   const groups: TrailGroup[] = [];
-  for (const [name, trails] of regionMap) {
-    trails.sort((a, b) => (b.length_miles || 0) - (a.length_miles || 0));
-    const totalMiles = trails.reduce((sum, t) => sum + (t.length_miles || 0), 0);
-    const center = trails[0]?.center || null;
-    groups.push({ name, trailCount: trails.length, totalMiles: Math.round(totalMiles * 10) / 10, trails, center });
+  for (const [name, regionTrails] of regionMap) {
+    regionTrails.sort((a, b) => (b.length_miles || 0) - (a.length_miles || 0));
+    const totalMiles = regionTrails.reduce((sum, t) => sum + (t.length_miles || 0), 0);
+    const center = regionTrails[0]?.center || null;
+    groups.push({ name, trailCount: regionTrails.length, totalMiles: Math.round(totalMiles * 10) / 10, trails: regionTrails, center });
   }
 
   groups.sort((a, b) => b.totalMiles - a.totalMiles);
@@ -198,7 +176,7 @@ export default function MapContainer() {
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const basemapPathLayersRef = useRef<string[]>([]);
   const trailGeoJsonRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
-  const trailCacheRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
+  // trailCacheRef removed — replaced by trailMetaCacheRef + geomCacheRef in data loading section
   const selectedTrailIdRef = useRef<string | null>(null);
 
   // Refs for stable callbacks
@@ -530,11 +508,14 @@ export default function MapContainer() {
     }
   }, [hideBoundaryLayers, setupBasemapPaths, desaturateRoads, adjustDarkMode, adjustTopoStyle]);
 
-  // ── Data loading ──
+  // ── Data loading (2-phase: metadata first, geometry async) ──
 
-  // Track which bbox cells have already been fetched to avoid re-requesting
-  const fetchedCellsRef = useRef<Set<string>>(new Set());
-  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Trail metadata cache (lightweight, no geometry)
+  const trailMetaCacheRef = useRef<Map<string, TrailItem>>(new Map());
+  // Geometry cache: trail_id → GeoJSON Feature (with geometry)
+  const geomCacheRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
+  // Track in-flight geometry requests to avoid duplicates
+  const geomInFlightRef = useRef<Set<string>>(new Set());
 
   /** Compute minimum trail length (miles) based on zoom level.
    *  z3 = 100mi, z4 = 50mi baseline, each zoom level shows ~3× more detail. */
@@ -555,56 +536,10 @@ export default function MapContainer() {
     return 2000;
   }, []);
 
-  /** Fetch trails for a bbox string and merge into cache. Returns new feature count. */
-  const fetchAndCacheBbox = useCallback(async (bboxStr: string, zoom?: number): Promise<number> => {
-    const z = zoom ?? 10;
-    const minLen = minLengthForZoom(z);
-    const maxRes = maxResultsForZoom(z);
-    const res = await fetch(`/api/trails/geojson?bbox=${bboxStr}&min_length=${minLen}&max_results=${maxRes}`);
-    const geojson = await res.json();
-    if (geojson._error) {
-      console.error(`[ROAM] API error: ${geojson._error}`);
-      return 0;
-    }
-    const cache = trailCacheRef.current;
-    let added = 0;
-    for (const feature of (geojson.features || [])) {
-      const id = feature.properties?.id;
-      if (id && !cache.has(id)) added++;
-      if (id) cache.set(id, feature);
-    }
-    return added;
-  }, []);
-
-  /** Check if any coordinate in a feature intersects a bounding box */
-  const featureInBounds = useCallback((feature: GeoJSON.Feature, bounds: maplibregl.LngLatBounds): boolean => {
-    const w = bounds.getWest(), s = bounds.getSouth();
-    const e = bounds.getEast(), n = bounds.getNorth();
-    const geom = feature.geometry;
-    let coords: number[][] = [];
-    if (geom.type === 'LineString') coords = geom.coordinates as number[][];
-    else if (geom.type === 'MultiLineString') {
-      for (const seg of geom.coordinates as number[][][]) coords.push(...seg);
-    } else if (geom.type === 'Polygon') {
-      // Polygon rings: first ring is outer boundary
-      for (const ring of geom.coordinates as number[][][]) coords.push(...ring);
-    } else if (geom.type === 'Point') {
-      const [lng, lat] = geom.coordinates as number[];
-      return lng >= w && lng <= e && lat >= s && lat <= n;
-    }
-    // Check if ANY point falls within bounds (fast enough for our use)
-    for (const c of coords) {
-      if (c[0] >= w && c[0] <= e && c[1] >= s && c[1] <= n) return true;
-    }
-    return false;
-  }, []);
-
-  /** Push the accumulated cache to map sources and sidebar */
-  const flushCacheToMap = useCallback((map: maplibregl.Map) => {
-    const accumulated: GeoJSON.FeatureCollection = {
-      type: 'FeatureCollection',
-      features: Array.from(trailCacheRef.current.values()),
-    };
+  /** Push geometry cache to map sources */
+  const flushGeometryToMap = useCallback((map: maplibregl.Map) => {
+    const features = Array.from(geomCacheRef.current.values());
+    const accumulated: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
     trailGeoJsonRef.current = accumulated;
 
     const source = map.getSource('trails') as maplibregl.GeoJSONSource;
@@ -616,9 +551,7 @@ export default function MapContainer() {
 
     // Keep selected trail highlighted
     if (selectedTrailIdRef.current) {
-      const selectedFeature = accumulated.features?.find(
-        (f: GeoJSON.Feature) => f.properties?.id === selectedTrailIdRef.current
-      );
+      const selectedFeature = features.find(f => f.properties?.id === selectedTrailIdRef.current);
       const selectedSource = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
       if (selectedSource) {
         selectedSource.setData(selectedFeature
@@ -627,93 +560,105 @@ export default function MapContainer() {
         );
       }
     }
-
-    // Sidebar only shows trails in the current viewport
-    const bounds = map.getBounds();
-    const visibleFeatures = accumulated.features.filter(f => featureInBounds(f, bounds));
-    const visibleGeoJson: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: visibleFeatures };
-    setTrailGroups(extractTrailGroups(visibleGeoJson));
-  }, [featureInBounds]);
-
-  /** Round a bbox to a grid cell key for deduplication */
-  const bboxCellKey = useCallback((w: number, s: number, e: number, n: number, cellW: number, cellH: number) => {
-    // Snap to grid so the same area doesn't get fetched twice
-    const gw = Math.floor(w / cellW) * cellW;
-    const gs = Math.floor(s / cellH) * cellH;
-    return `${gw.toFixed(3)},${gs.toFixed(3)},${(gw + cellW).toFixed(3)},${(gs + cellH).toFixed(3)}`;
   }, []);
 
-  /** Prefetch a ring of tiles surrounding the current viewport */
-  const prefetchSurrounding = useCallback(async (map: maplibregl.Map) => {
-    const bounds = map.getBounds();
-    const zoom = map.getZoom();
-    if (zoom < MIN_DATA_ZOOM) return;
+  /** Fetch geometry for trail IDs that aren't cached, then render */
+  const fetchGeometries = useCallback(async (map: maplibregl.Map, trailIds: string[]) => {
+    // Filter to IDs we don't have geometry for and aren't already fetching
+    const needed = trailIds.filter(id => !geomCacheRef.current.has(id) && !geomInFlightRef.current.has(id));
+    if (needed.length === 0) return;
 
-    const w = bounds.getWest(), s = bounds.getSouth();
-    const e = bounds.getEast(), n = bounds.getNorth();
-    const vw = e - w;  // viewport width in degrees
-    const vh = n - s;  // viewport height in degrees
+    // Mark as in-flight
+    for (const id of needed) geomInFlightRef.current.add(id);
 
-    // Build a 3×3 grid centered on the viewport (covers ±1 viewport in each direction)
-    const cells: string[] = [];
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        if (dx === 0 && dy === 0) continue; // skip center (already loaded)
-        const cellW = w + dx * vw;
-        const cellS = s + dy * vh;
-        const cellE = cellW + vw;
-        const cellN = cellS + vh;
-        const key = bboxCellKey(cellW, cellS, cellE, cellN, vw, vh);
-        if (!fetchedCellsRef.current.has(key)) {
-          cells.push(`${cellW},${cellS},${cellE},${cellN}`);
-          fetchedCellsRef.current.add(key);
+    try {
+      // Fetch in batches of 100
+      for (let i = 0; i < needed.length; i += 100) {
+        const batch = needed.slice(i, i + 100);
+        const res = await fetch('/api/trails/geometry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: batch }),
+        });
+        const geojson = await res.json();
+
+        // Merge geometry with metadata to create full features
+        for (const feature of (geojson.features || [])) {
+          const id = feature.properties?.id || feature.id;
+          if (!id) continue;
+          const meta = trailMetaCacheRef.current.get(id);
+          if (meta) {
+            feature.properties = {
+              id: meta.id,
+              name: meta.name,
+              difficulty: meta.difficulty,
+              length_miles: meta.length_miles,
+              elevation_gain_ft: meta.elevation_gain_ft,
+              route_type: meta.route_type,
+              region: meta.region,
+            };
+          }
+          geomCacheRef.current.set(id, feature);
         }
+
+        // Flush after each batch so trails appear progressively
+        flushGeometryToMap(map);
       }
+    } catch (err) {
+      console.error('[ROAM] Geometry fetch error:', err);
+    } finally {
+      for (const id of needed) geomInFlightRef.current.delete(id);
     }
+  }, [flushGeometryToMap]);
 
-    if (cells.length === 0) return;
-    console.log(`[ROAM] Prefetching ${cells.length} surrounding cells at z${zoom.toFixed(1)}`);
-
-    // Fetch in batches of 4 to avoid hammering the API
-    let totalAdded = 0;
-    for (let i = 0; i < cells.length; i += 4) {
-      const batch = cells.slice(i, i + 4);
-      const results = await Promise.all(batch.map(bbox => fetchAndCacheBbox(bbox, zoom)));
-      totalAdded += results.reduce((a, b) => a + b, 0);
-      // Flush to map after each batch so trails appear progressively
-      if (totalAdded > 0) flushCacheToMap(map);
-    }
-
-    if (totalAdded > 0) {
-      console.log(`[ROAM] Prefetch complete: +${totalAdded} new trails | total cached: ${trailCacheRef.current.size}`);
-    }
-  }, [fetchAndCacheBbox, flushCacheToMap, bboxCellKey, minLengthForZoom]);
-
+  /** Phase 1: Fetch lightweight metadata, update sidebar, then trigger geometry fetch */
   const loadTrailsForViewport = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
     const zoom = map.getZoom();
     if (zoom < MIN_DATA_ZOOM) return;
 
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
-
-    // Mark center cell as fetched
-    const vw = bounds.getEast() - bounds.getWest();
-    const vh = bounds.getNorth() - bounds.getSouth();
-    const centerKey = bboxCellKey(bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth(), vw, vh);
-    fetchedCellsRef.current.add(centerKey);
+    const minLen = minLengthForZoom(zoom);
+    const maxRes = maxResultsForZoom(zoom);
 
     try {
-      const added = await fetchAndCacheBbox(bbox, zoom);
-      console.log(`[ROAM] Fetched viewport at z${zoom.toFixed(1)} (min ${minLengthForZoom(zoom)}mi) | +${added} new | total cached: ${trailCacheRef.current.size}`);
-      flushCacheToMap(map);
+      // Phase 1: Fast metadata query
+      const res = await fetch(`/api/trails/geojson?bbox=${bbox}&min_length=${minLen}&max_results=${maxRes}`);
+      const data = await res.json();
+      if (data._error) {
+        console.error(`[ROAM] API error: ${data._error}`);
+        return;
+      }
 
-      // Prefetch disabled temporarily for performance debugging
-      // if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
-      // prefetchTimerRef.current = setTimeout(() => prefetchSurrounding(map), 300);
+      const trails: TrailItem[] = (data.trails || []).map((t: { id: string; name: string; difficulty: string | null; length_miles: number; elevation_gain_ft: number | null; route_type: string | null; region: string | null; bbox: [number, number, number, number] }) => ({
+        id: t.id,
+        name: t.name,
+        difficulty: t.difficulty,
+        length_miles: t.length_miles,
+        elevation_gain_ft: t.elevation_gain_ft,
+        route_type: t.route_type,
+        region: t.region,
+        bbox: t.bbox,
+        center: t.bbox ? [(t.bbox[0] + t.bbox[2]) / 2, (t.bbox[1] + t.bbox[3]) / 2] as [number, number] : null,
+      }));
+
+      // Update metadata cache
+      for (const trail of trails) {
+        trailMetaCacheRef.current.set(trail.id, trail);
+      }
+
+      console.log(`[ROAM] Fetched ${trails.length} trails at z${zoom.toFixed(1)} (min ${minLen}mi) | geom cached: ${geomCacheRef.current.size}`);
+
+      // Update sidebar immediately (no geometry needed)
+      setTrailGroups(extractTrailGroups(trails));
+
+      // Phase 2: Async geometry fetch for visible trails
+      const trailIds = trails.map(t => t.id);
+      fetchGeometries(map, trailIds);
     } catch (err) {
       console.error('Failed to load trails:', err);
     }
-  }, [fetchAndCacheBbox, flushCacheToMap, prefetchSurrounding, bboxCellKey, minLengthForZoom]);
+  }, [minLengthForZoom, maxResultsForZoom, fetchGeometries]);
 
   // ── User marker ──
 
@@ -916,9 +861,7 @@ export default function MapContainer() {
 
     // Highlight this trail on the map
     selectedTrailIdRef.current = trail.id;
-    const feature = trailGeoJsonRef.current.features?.find(
-      (f: GeoJSON.Feature) => f.properties?.id === trail.id
-    );
+    const feature = geomCacheRef.current.get(trail.id);
     const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
     if (src) {
       src.setData(feature
@@ -927,25 +870,21 @@ export default function MapContainer() {
       );
     }
 
-    // Zoom to fit the entire trail geometry
-    if (feature) {
-      const geom = feature.geometry;
-      let coords: number[][] = [];
-      if (geom.type === 'LineString') coords = geom.coordinates as number[][];
-      else if (geom.type === 'MultiLineString') {
-        for (const seg of geom.coordinates as number[][][]) coords.push(...seg);
-      }
-      if (coords.length >= 2) {
-        const bounds = new maplibregl.LngLatBounds([coords[0][0], coords[0][1]], [coords[0][0], coords[0][1]]);
-        for (const c of coords) bounds.extend([c[0], c[1]]);
-        map.fitBounds(bounds, { padding: 80, maxZoom: 16, duration: 1200 });
-        return;
-      }
+    // If we don't have geometry yet, fetch it
+    if (!feature) {
+      fetchGeometries(map, [trail.id]);
     }
 
-    // Fallback: fly to center if no geometry
+    // Zoom to fit using bbox (always available from metadata)
+    if (trail.bbox) {
+      const [w, s, e, n] = trail.bbox;
+      map.fitBounds([[w, s], [e, n]], { padding: 80, maxZoom: 16, duration: 1200 });
+      return;
+    }
+
+    // Fallback: fly to center
     if (trail.center) map.flyTo({ center: trail.center, zoom: 15, speed: 1.2 });
-  }, []);
+  }, [fetchGeometries]);
 
   const handleGroupSelect = useCallback((group: TrailGroup) => {
     const map = mapRef.current;
