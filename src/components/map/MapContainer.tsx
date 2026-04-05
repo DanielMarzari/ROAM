@@ -3,16 +3,20 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import mlcontour from 'maplibre-contour';
 import {
   BASEMAP_STYLES, DEFAULT_CENTER, DEFAULT_ZOOM,
   TRAIL_LINE_COLOR, TRAIL_DASH_PATTERN,
   PATH_LAYER_KEYWORDS, PATH_LAYER_EXCLUDE,
   HIGHWAY_LAYERS, HIGHWAY_COLOR, HIGHWAY_CASING_COLOR,
   MINOR_ROAD_LAYERS, MINOR_ROAD_COLOR, MINOR_ROAD_CASING_COLOR,
-  CONTOUR_CONFIG,
 } from '@/lib/maps/config';
-import { satelliteSource, satelliteLayer, hillshadeSource, hillshadeLayer, contourLineLayer, contourLabelLayer } from '@/lib/maps/layers';
+import {
+  satelliteSource, satelliteLayer,
+  hillshadeSource, hillshadeLayer,
+  trailTileSource, trailLinesSolid, trailLinesDashed, trailLinesCasing,
+  contourTileSource, contourLineLayer, contourLabelLayer,
+  parkFillLayer,
+} from '@/lib/maps/layers';
 import type { BasemapStyle } from '@/types/map';
 import MapControls from './MapControls';
 import TrailSidebar from './TrailSidebar';
@@ -27,33 +31,8 @@ const SELECTED_TRAIL_LAYER_IDS = ['selected-trail-casing', 'selected-trail'];
 // Contour layer IDs
 const CONTOUR_LAYER_IDS = ['contour-lines', 'contour-labels'];
 
-// Min zoom to start loading trail data
+// Min zoom to start loading trail data (for sidebar metadata from DB)
 const MIN_DATA_ZOOM = 3;
-
-// ── DEM source for contour lines (singleton, shared across style changes) ──
-let demSourceInstance: ReturnType<typeof mlcontour.DemSource.prototype.contourProtocolUrl> | null = null;
-let demSource: InstanceType<typeof mlcontour.DemSource> | null = null;
-
-function getDemSource() {
-  if (!demSource) {
-    demSource = new mlcontour.DemSource({
-      url: CONTOUR_CONFIG.demUrl,
-      encoding: CONTOUR_CONFIG.encoding,
-      maxzoom: CONTOUR_CONFIG.maxzoom,
-      worker: true,
-      cacheSize: 100,
-      timeoutMs: 10000,
-    });
-    demSource.setupMaplibre(maplibregl);
-  }
-  if (!demSourceInstance) {
-    demSourceInstance = demSource.contourProtocolUrl({
-      multiplier: CONTOUR_CONFIG.multiplier,
-      thresholds: CONTOUR_CONFIG.thresholds,
-    });
-  }
-  return demSourceInstance;
-}
 
 // ── helpers ──
 
@@ -72,58 +51,7 @@ function findBasemapPathLayers(map: maplibregl.Map): string[] {
     .map((layer) => layer.id);
 }
 
-/** Compute midpoint of a LineString coordinate array */
-function midpoint(coords: number[][]): [number, number] | null {
-  if (!coords || coords.length < 2) return null;
-  let totalDist = 0;
-  const dists = [0];
-  for (let i = 1; i < coords.length; i++) {
-    const dx = coords[i][0] - coords[i - 1][0];
-    const dy = coords[i][1] - coords[i - 1][1];
-    totalDist += Math.sqrt(dx * dx + dy * dy);
-    dists.push(totalDist);
-  }
-  const half = totalDist / 2;
-  for (let i = 1; i < dists.length; i++) {
-    if (dists[i] >= half) {
-      const segLen = dists[i] - dists[i - 1];
-      const t = segLen > 0 ? (half - dists[i - 1]) / segLen : 0;
-      return [
-        coords[i - 1][0] + t * (coords[i][0] - coords[i - 1][0]),
-        coords[i - 1][1] + t * (coords[i][1] - coords[i - 1][1]),
-      ];
-    }
-  }
-  return [coords[0][0], coords[0][1]];
-}
-
-/** Build point FeatureCollection with length labels at trail midpoints */
-function buildLengthLabels(geojson: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
-  for (const feature of geojson.features) {
-    const props = feature.properties || {};
-    const miles = props.length_miles;
-    if (!miles || miles < 0.3) continue;
-    const geom = feature.geometry;
-    let coords: number[][] | null = null;
-    if (geom.type === 'LineString') {
-      coords = geom.coordinates as number[][];
-    } else if (geom.type === 'MultiLineString') {
-      const segments = geom.coordinates as number[][][];
-      let longest: number[][] = [];
-      for (const seg of segments) if (seg.length > longest.length) longest = seg;
-      coords = longest;
-    }
-    const mid = coords ? midpoint(coords) : null;
-    if (!mid) continue;
-    features.push({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: mid },
-      properties: { label: `${miles} mi`, name: props.name || '' },
-    });
-  }
-  return { type: 'FeatureCollection', features };
-}
+// midpoint() and buildLengthLabels() removed — trail names now come from vector tile labels
 
 // ── Trail types for sidebar ──
 export interface TrailItem {
@@ -175,7 +103,7 @@ export default function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const basemapPathLayersRef = useRef<string[]>([]);
-  const trailGeoJsonRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  // trailGeoJsonRef removed — trails now render from vector tiles
   // trailCacheRef removed — replaced by trailMetaCacheRef + geomCacheRef in data loading section
   const selectedTrailIdRef = useRef<string | null>(null);
 
@@ -345,109 +273,66 @@ export default function MapContainer() {
   // ── Add all sources and layers ──
 
   const addSourcesAndLayers = useCallback((map: maplibregl.Map) => {
-    // Data sources
-    if (!map.getSource('trails')) {
-      map.addSource('trails', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    }
-    if (!map.getSource('trail-labels')) {
-      map.addSource('trail-labels', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    // ── Tile sources ──
+
+    // OpenTrailMap trail vector tiles (z5–z14, pre-built from OSM)
+    if (!map.getSource('osm-trails')) {
+      map.addSource('osm-trails', trailTileSource());
     }
 
-    // Overlay sources
+    // Satellite raster overlay
     if (!map.getSource('satellite')) {
       map.addSource('satellite', satelliteSource());
     }
 
-    // Contour DEM vector source
+    // Hillshade raster tiles (pre-rendered from OSMU)
+    if (!map.getSource('hillshade')) {
+      map.addSource('hillshade', hillshadeSource());
+    }
+
+    // Contour vector tiles (pre-computed feet, from OSMU)
     if (!map.getSource('contour-source')) {
-      const contourUrl = getDemSource();
-      map.addSource('contour-source', {
-        type: 'vector',
-        tiles: [contourUrl],
-      });
+      map.addSource('contour-source', contourTileSource());
     }
 
-    // Hillshade raster-dem source (same DEM tiles, different source type)
-    if (!map.getSource('hillshade-dem')) {
-      map.addSource('hillshade-dem', hillshadeSource());
+    // Selected trail GeoJSON source (for highlight from DB geometry)
+    if (!map.getSource('selected-trail')) {
+      map.addSource('selected-trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     }
 
-    // Overlay layers (added early so trails render on top)
-    if (!map.getLayer('satellite-layer')) {
-      map.addLayer(satelliteLayer);
-    }
-    // Hillshade beneath contours and trails
-    if (!map.getLayer('hillshade-layer')) {
-      map.addLayer(hillshadeLayer);
-    }
-    if (!map.getLayer('contour-lines')) {
-      map.addLayer(contourLineLayer);
-    }
-    if (!map.getLayer('contour-labels')) {
-      map.addLayer(contourLabelLayer);
-    }
+    // ── Overlay layers (added early so trails render on top) ──
+    if (!map.getLayer('satellite-layer')) map.addLayer(satelliteLayer);
+    if (!map.getLayer('hillshade-layer')) map.addLayer(hillshadeLayer);
+    if (!map.getLayer('osm-park-fill')) map.addLayer(parkFillLayer);
+    if (!map.getLayer('contour-lines')) map.addLayer(contourLineLayer);
+    if (!map.getLayer('contour-labels')) map.addLayer(contourLabelLayer);
 
-    // Trail lines — solid at low zoom, fades to dashed at higher zoom
-    // Solid layer: full opacity at z3–z8, fades out by z10
-    if (!map.getLayer('trail-lines-solid')) {
+    // ── Trail lines from OpenTrailMap vector tiles ──
+    if (!map.getLayer('trail-lines-solid')) map.addLayer(trailLinesSolid);
+    if (!map.getLayer('trail-lines')) map.addLayer(trailLinesDashed);
+    if (!map.getLayer('trail-lines-casing')) map.addLayer(trailLinesCasing);
+
+    // Trail name labels from vector tiles (at higher zoom)
+    if (!map.getLayer('trail-name-labels')) {
       map.addLayer({
-        id: 'trail-lines-solid',
-        type: 'line',
-        source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': '#1a1a1a',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.4, 8, 0.8, 12, 1.5, 15, 2, 18, 3],
-          'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 10, 0],
-        },
-      });
-    }
-
-    // Dashed layer: invisible at z8, fades in by z10
-    if (!map.getLayer('trail-lines')) {
-      map.addLayer({
-        id: 'trail-lines',
-        type: 'line',
-        source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': '#1a1a1a',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 12, 1.5, 15, 2, 18, 3],
-          'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0, 10, 0.7],
-          'line-dasharray': [2, 1.5],
-        },
-      });
-    }
-
-    // Trail casing — subtle, visible by default
-    if (!map.getLayer('trail-lines-casing')) {
-      map.addLayer({
-        id: 'trail-lines-casing',
-        type: 'line',
-        source: 'trails',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': '#000000',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.6, 12, 3, 15, 4, 18, 5.5],
-          'line-opacity': 0.08,
-        },
-      });
-    }
-
-    // Length labels
-    if (!map.getLayer('trail-length-labels')) {
-      map.addLayer({
-        id: 'trail-length-labels',
+        id: 'trail-name-labels',
         type: 'symbol',
-        source: 'trail-labels',
+        source: 'osm-trails',
+        'source-layer': 'trail',
         minzoom: 13,
+        filter: ['all',
+          ['has', 'name'],
+          ['has', 'highway'],
+          ['in', ['get', 'highway'], ['literal', ['path', 'footway', 'track', 'cycleway', 'bridleway', 'steps']]],
+        ],
         layout: {
-          'text-field': ['get', 'label'],
+          'text-field': ['get', 'name'],
           'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 15, 11, 17, 13],
           'text-font': ['Noto Sans Bold'],
-          'text-anchor': 'center',
+          'symbol-placement': 'line',
+          'text-rotation-alignment': 'map',
+          'text-max-angle': 25,
           'text-allow-overlap': false,
-          'text-ignore-placement': false,
           'text-padding': 8,
         },
         paint: {
@@ -459,12 +344,7 @@ export default function MapContainer() {
       });
     }
 
-    // ── Selected trail highlight layers ──
-    if (!map.getSource('selected-trail')) {
-      map.addSource('selected-trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    }
-
-    // Selected trail outer glow/casing
+    // ── Selected trail highlight layers (GeoJSON from DB) ──
     if (!map.getLayer('selected-trail-casing')) {
       map.addLayer({
         id: 'selected-trail-casing',
@@ -478,8 +358,6 @@ export default function MapContainer() {
         },
       });
     }
-
-    // Selected trail solid line
     if (!map.getLayer('selected-trail')) {
       map.addLayer({
         id: 'selected-trail',
@@ -517,198 +395,115 @@ export default function MapContainer() {
     }
   }, [hideBoundaryLayers, setupBasemapPaths, desaturateRoads, adjustDarkMode, adjustTopoStyle]);
 
-  // ── Data loading (2-phase: metadata first, geometry async) ──
+  // ── Data loading (sidebar metadata from DB, trails render from vector tiles) ──
+  // Trail lines render instantly from OpenTrailMap vector tiles — no DB geometry needed.
+  // DB is only used for: sidebar metadata + selected trail highlighting.
 
-  // Trail metadata cache (lightweight, no geometry)
   const trailMetaCacheRef = useRef<Map<string, TrailItem>>(new Map());
-  // Geometry cache: trail_id → GeoJSON Feature (with geometry)
   const geomCacheRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
-  // Track in-flight geometry requests to avoid duplicates
-  const geomInFlightRef = useRef<Set<string>>(new Set());
-  // Debounce timer for viewport loads (wait for zoom/pan to settle)
   const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // AbortController for cancelling in-flight viewport requests
   const viewportAbortRef = useRef<AbortController | null>(null);
 
-  /** Compute minimum trail length (miles) based on zoom level.
-   *  z3 = 100mi, z4 = 50mi baseline, each zoom level shows ~3× more detail. */
+  /** Compute minimum trail length (miles) based on zoom level */
   const minLengthForZoom = useCallback((zoom: number): number => {
     if (zoom >= 10) return 0.1;
     if (zoom <= 3) return 100;
-    const min = 50 / Math.pow(3, zoom - 4);
-    return Math.max(Math.round(min * 10) / 10, 0.1);
+    return Math.max(Math.round((50 / Math.pow(3, zoom - 4)) * 10) / 10, 0.1);
   }, []);
 
-  /** Compute max results based on zoom — fewer results at low zoom for speed */
+  /** Compute max results based on zoom */
   const maxResultsForZoom = useCallback((zoom: number): number => {
     if (zoom <= 3) return 50;
-    if (zoom <= 4) return 100;
     if (zoom <= 5) return 300;
-    if (zoom <= 6) return 500;
     if (zoom <= 7) return 1000;
     return 2000;
   }, []);
 
-  /** Push geometry cache to map sources */
-  const flushGeometryToMap = useCallback((map: maplibregl.Map) => {
-    const features = Array.from(geomCacheRef.current.values());
-    const accumulated: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
-    trailGeoJsonRef.current = accumulated;
+  /** Fetch geometry for a single trail (for selected trail highlighting) */
+  const fetchTrailGeometry = useCallback(async (map: maplibregl.Map, trailId: string) => {
+    if (geomCacheRef.current.has(trailId)) {
+      const feature = geomCacheRef.current.get(trailId)!;
+      const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
+      if (src) src.setData({ type: 'FeatureCollection', features: [feature] });
+      return;
+    }
 
-    const source = map.getSource('trails') as maplibregl.GeoJSONSource;
-    if (source) source.setData(accumulated);
-
-    const labels = buildLengthLabels(accumulated);
-    const labelSource = map.getSource('trail-labels') as maplibregl.GeoJSONSource;
-    if (labelSource) labelSource.setData(labels);
-
-    // Keep selected trail highlighted
-    if (selectedTrailIdRef.current) {
-      const selectedFeature = features.find(f => f.properties?.id === selectedTrailIdRef.current);
-      const selectedSource = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
-      if (selectedSource) {
-        selectedSource.setData(selectedFeature
-          ? { type: 'FeatureCollection', features: [selectedFeature] }
-          : { type: 'FeatureCollection', features: [] }
-        );
+    try {
+      const res = await fetch('/api/trails/geometry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [trailId] }),
+      });
+      const geojson = await res.json();
+      const feature = (geojson.features || [])[0];
+      if (feature) {
+        const meta = trailMetaCacheRef.current.get(trailId);
+        if (meta) {
+          feature.properties = {
+            id: meta.id, name: meta.name, difficulty: meta.difficulty,
+            length_miles: meta.length_miles, elevation_gain_ft: meta.elevation_gain_ft,
+            route_type: meta.route_type, region: meta.region,
+          };
+        }
+        geomCacheRef.current.set(trailId, feature);
+        const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
+        if (src) src.setData({ type: 'FeatureCollection', features: [feature] });
       }
+    } catch (err) {
+      console.error('[ROAM] Geometry fetch error:', err);
     }
   }, []);
 
-  /** Fetch geometry for trail IDs that aren't cached, then render.
-   *  Accepts an optional AbortSignal to cancel in-flight requests on viewport change. */
-  const fetchGeometries = useCallback(async (map: maplibregl.Map, trailIds: string[], signal?: AbortSignal) => {
-    // Filter to IDs we don't have geometry for and aren't already fetching
-    const needed = trailIds.filter(id => !geomCacheRef.current.has(id) && !geomInFlightRef.current.has(id));
-    if (needed.length === 0) return;
-
-    // Mark as in-flight
-    for (const id of needed) geomInFlightRef.current.add(id);
-
-    try {
-      // Fetch in batches of 100
-      for (let i = 0; i < needed.length; i += 100) {
-        // Bail early if aborted between batches
-        if (signal?.aborted) break;
-
-        const batch = needed.slice(i, i + 100);
-        const res = await fetch('/api/trails/geometry', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: batch }),
-          signal,
-        });
-        const geojson = await res.json();
-
-        // Merge geometry with metadata to create full features
-        for (const feature of (geojson.features || [])) {
-          const id = feature.properties?.id || feature.id;
-          if (!id) continue;
-          const meta = trailMetaCacheRef.current.get(id);
-          if (meta) {
-            feature.properties = {
-              id: meta.id,
-              name: meta.name,
-              difficulty: meta.difficulty,
-              length_miles: meta.length_miles,
-              elevation_gain_ft: meta.elevation_gain_ft,
-              route_type: meta.route_type,
-              region: meta.region,
-            };
-          }
-          geomCacheRef.current.set(id, feature);
-        }
-
-        // Flush after each batch so trails appear progressively
-        flushGeometryToMap(map);
-      }
-    } catch (err) {
-      // Ignore abort errors — they're intentional
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      console.error('[ROAM] Geometry fetch error:', err);
-    } finally {
-      for (const id of needed) geomInFlightRef.current.delete(id);
-    }
-  }, [flushGeometryToMap]);
-
-  /** Phase 1: Fetch lightweight metadata, update sidebar, then trigger geometry fetch.
-   *  Cancels any previous in-flight viewport request first. */
-  const loadTrailsForViewportNow = useCallback(async (map: maplibregl.Map) => {
+  /** Fetch sidebar metadata from DB for current viewport (debounced) */
+  const loadSidebarMetadata = useCallback(async (map: maplibregl.Map) => {
     const bounds = map.getBounds();
     const zoom = map.getZoom();
     if (zoom < MIN_DATA_ZOOM) return;
 
-    // Abort any previous in-flight viewport request (metadata + geometry)
     if (viewportAbortRef.current) viewportAbortRef.current.abort();
     const controller = new AbortController();
     viewportAbortRef.current = controller;
-    const { signal } = controller;
 
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
     const minLen = minLengthForZoom(zoom);
     const maxRes = maxResultsForZoom(zoom);
 
     try {
-      // Phase 1: Fast metadata query
-      const res = await fetch(`/api/trails/geojson?bbox=${bbox}&min_length=${minLen}&max_results=${maxRes}`, { signal });
+      const res = await fetch(
+        `/api/trails/geojson?bbox=${bbox}&min_length=${minLen}&max_results=${maxRes}`,
+        { signal: controller.signal },
+      );
       const data = await res.json();
-      if (data._error) {
-        console.error(`[ROAM] API error: ${data._error}`);
-        return;
-      }
+      if (data._error) { console.error(`[ROAM] API error: ${data._error}`); return; }
 
       const trails: TrailItem[] = (data.trails || []).map((t: { id: string; name: string; difficulty: string | null; length_miles: number; elevation_gain_ft: number | null; route_type: string | null; region: string | null; bbox: [number, number, number, number] }) => ({
-        id: t.id,
-        name: t.name,
-        difficulty: t.difficulty,
-        length_miles: t.length_miles,
-        elevation_gain_ft: t.elevation_gain_ft,
-        route_type: t.route_type,
-        region: t.region,
-        bbox: t.bbox,
+        id: t.id, name: t.name, difficulty: t.difficulty,
+        length_miles: t.length_miles, elevation_gain_ft: t.elevation_gain_ft,
+        route_type: t.route_type, region: t.region, bbox: t.bbox,
         center: t.bbox ? [(t.bbox[0] + t.bbox[2]) / 2, (t.bbox[1] + t.bbox[3]) / 2] as [number, number] : null,
       }));
 
-      // Update metadata cache
-      for (const trail of trails) {
-        trailMetaCacheRef.current.set(trail.id, trail);
-      }
-
-      console.log(`[ROAM] Fetched ${trails.length} trails at z${zoom.toFixed(1)} (min ${minLen}mi) | geom cached: ${geomCacheRef.current.size}`);
-
-      // Update sidebar immediately (no geometry needed)
+      for (const trail of trails) trailMetaCacheRef.current.set(trail.id, trail);
+      console.log(`[ROAM] Sidebar: ${trails.length} trails at z${zoom.toFixed(1)}`);
       setTrailGroups(extractTrailGroups(trails));
-
-      // Phase 2: Async geometry fetch for visible trails (shares the same abort signal)
-      const trailIds = trails.map(t => t.id);
-      fetchGeometries(map, trailIds, signal);
     } catch (err) {
-      // Ignore abort errors — they're intentional when viewport changes
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      console.error('Failed to load trails:', err);
+      console.error('Failed to load sidebar:', err);
     }
-  }, [minLengthForZoom, maxResultsForZoom, fetchGeometries]);
+  }, [minLengthForZoom, maxResultsForZoom]);
 
-  /** Debounced wrapper — waits 300ms after last moveend before fetching.
-   *  Immediate=true skips debounce (used for initial load & basemap switch). */
+  /** Debounced wrapper for sidebar metadata loading */
   const loadTrailsForViewport = useCallback((map: maplibregl.Map, immediate?: boolean) => {
-    // Clear any pending debounce timer
     if (viewportTimerRef.current) {
       clearTimeout(viewportTimerRef.current);
       viewportTimerRef.current = null;
     }
-
-    if (immediate) {
-      loadTrailsForViewportNow(map);
-      return;
-    }
-
-    // Debounce: wait 300ms for zoom/pan to settle
+    if (immediate) { loadSidebarMetadata(map); return; }
     viewportTimerRef.current = setTimeout(() => {
       viewportTimerRef.current = null;
-      loadTrailsForViewportNow(map);
+      loadSidebarMetadata(map);
     }, 300);
-  }, [loadTrailsForViewportNow]);
+  }, [loadSidebarMetadata]);
 
   // ── User marker ──
 
@@ -745,55 +540,38 @@ export default function MapContainer() {
     map.on('load', () => {
       addSourcesAndLayers(map);
 
-      // Click on basemap path layers → find nearest trail from data and highlight it
+      // Click on trail → show popup with trail name from vector tile properties
       map.on('click', (e) => {
-        // Check if we clicked on the selected-trail highlight layer
-        const selectedFeats = map.queryRenderedFeatures(e.point, { layers: ['selected-trail'] });
-        // Check if we clicked on a basemap path
+        // Query our vector tile trail layers at the click point
+        const trailLayers = ['trail-lines-solid', 'trail-lines', 'trail-lines-casing'].filter(id => map.getLayer(id));
+        const trailFeats = trailLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: trailLayers }) : [];
+
+        // Also check basemap path layers
         const pathLayers = basemapPathLayersRef.current.filter(id => map.getLayer(id));
         const pathFeats = pathLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: pathLayers }) : [];
 
-        if (selectedFeats.length > 0 || pathFeats.length > 0) {
-          // Find nearest trail from our data
-          const features = trailGeoJsonRef.current.features || [];
-          if (features.length === 0) return;
+        if (trailFeats.length > 0 || pathFeats.length > 0) {
+          const feat = trailFeats[0] || pathFeats[0];
+          const props = feat?.properties || {};
+          const name = props.name || 'Unnamed Trail';
+          const highway = props.highway || '';
+          const surface = props.surface || '';
+          const sacScale = props.sac_scale || '';
 
-          let nearest: GeoJSON.Feature | null = null;
-          let nearestDist = Infinity;
-          const clickPt = e.lngLat;
-
-          for (const f of features) {
-            const geom = f.geometry;
-            let coords: number[][] = [];
-            if (geom.type === 'LineString') coords = geom.coordinates as number[][];
-            else if (geom.type === 'MultiLineString') {
-              for (const seg of geom.coordinates as number[][][]) coords.push(...seg);
-            }
-            for (const c of coords) {
-              const d = Math.sqrt((c[0] - clickPt.lng) ** 2 + (c[1] - clickPt.lat) ** 2);
-              if (d < nearestDist) { nearestDist = d; nearest = f; }
-            }
-          }
-
-          if (nearest && nearest.properties) {
-            selectedTrailIdRef.current = nearest.properties.id || null;
-            const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
-            if (src) src.setData({ type: 'FeatureCollection', features: [nearest] });
-
-            new maplibregl.Popup({ offset: 10, maxWidth: '260px' })
-              .setLngLat(e.lngLat)
-              .setHTML(`
-                <div style="font-family:system-ui;">
-                  <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;">${nearest.properties.name || 'Unnamed Trail'}</h3>
-                  <div style="display:flex;gap:8px;font-size:12px;color:#666;flex-wrap:wrap;">
-                    ${nearest.properties.difficulty ? `<span style="font-weight:600;text-transform:capitalize;">${nearest.properties.difficulty}</span>` : ''}
-                    ${nearest.properties.length_miles ? `<span>${nearest.properties.length_miles} mi</span>` : ''}
-                    ${nearest.properties.elevation_gain_ft ? `<span>${nearest.properties.elevation_gain_ft} ft gain</span>` : ''}
-                  </div>
+          // Show popup with vector tile properties
+          new maplibregl.Popup({ offset: 10, maxWidth: '260px' })
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div style="font-family:system-ui;">
+                <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;">${name}</h3>
+                <div style="display:flex;gap:8px;font-size:12px;color:#666;flex-wrap:wrap;">
+                  ${highway ? `<span style="text-transform:capitalize;">${highway}</span>` : ''}
+                  ${surface ? `<span>${surface}</span>` : ''}
+                  ${sacScale ? `<span>${sacScale}</span>` : ''}
                 </div>
-              `)
-              .addTo(map);
-          }
+              </div>
+            `)
+            .addTo(map);
         } else {
           // Clicked elsewhere — deselect
           selectedTrailIdRef.current = null;
@@ -821,15 +599,7 @@ export default function MapContainer() {
 
     map.on('moveend', () => loadTrailsForViewport(map));
     map.on('zoom', () => {
-      const z = map.getZoom();
-      setZoomLevel(Math.round(z * 10) / 10);
-
-      // Update trail layer filters to hide short trails at low zoom
-      const minLen = z >= 10 ? 0.1 : z <= 3 ? 100 : Math.max(Math.round((50 / Math.pow(3, z - 4)) * 10) / 10, 0.1);
-      const filter: maplibregl.FilterSpecification = ['>=', ['coalesce', ['get', 'length_miles'], 0], minLen];
-      for (const layerId of ['trail-lines-solid', 'trail-lines', 'trail-lines-casing', 'trail-length-labels']) {
-        if (map.getLayer(layerId)) map.setFilter(layerId, filter);
-      }
+      setZoomLevel(Math.round(map.getZoom() * 10) / 10);
     });
 
     mapRef.current = map;
@@ -903,8 +673,7 @@ export default function MapContainer() {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
     const vis = visible ? 'visible' : 'none';
-    // Toggle data trail layers + labels + selected highlight
-    for (const id of [...TRAIL_LAYER_IDS, 'trail-length-labels', ...SELECTED_TRAIL_LAYER_IDS]) {
+    for (const id of [...TRAIL_LAYER_IDS, 'trail-name-labels', ...SELECTED_TRAIL_LAYER_IDS]) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
     }
   }, [mapLoaded]);
@@ -924,19 +693,7 @@ export default function MapContainer() {
 
     // Highlight this trail on the map
     selectedTrailIdRef.current = trail.id;
-    const feature = geomCacheRef.current.get(trail.id);
-    const src = map.getSource('selected-trail') as maplibregl.GeoJSONSource;
-    if (src) {
-      src.setData(feature
-        ? { type: 'FeatureCollection', features: [feature] }
-        : { type: 'FeatureCollection', features: [] }
-      );
-    }
-
-    // If we don't have geometry yet, fetch it
-    if (!feature) {
-      fetchGeometries(map, [trail.id]);
-    }
+    fetchTrailGeometry(map, trail.id);
 
     // Zoom to fit using bbox (always available from metadata)
     if (trail.bbox) {
@@ -947,7 +704,7 @@ export default function MapContainer() {
 
     // Fallback: fly to center
     if (trail.center) map.flyTo({ center: trail.center, zoom: 15, speed: 1.2 });
-  }, [fetchGeometries]);
+  }, [fetchTrailGeometry]);
 
   const handleGroupSelect = useCallback((group: TrailGroup) => {
     const map = mapRef.current;

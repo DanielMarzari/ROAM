@@ -39,24 +39,10 @@ export const OVERLAY_TILES = {
 };
 
 /**
- * Elevation contour line settings (maplibre-contour).
- * Uses AWS Terrain tiles (free, public domain, global coverage).
+ * OpenTrailMap tile sources (OSMU) — pre-built vector + raster tiles.
+ * Contours and hillshade are pre-rendered; no client-side DEM processing needed.
  */
-export const CONTOUR_CONFIG = {
-  demUrl: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-  encoding: 'terrarium' as const,
-  maxzoom: 13,
-  /** Multiplier: 3.28084 converts meters → feet */
-  multiplier: 3.28084,
-  /** minor/major intervals per zoom level (in feet) */
-  thresholds: {
-    11: [200, 1000],
-    12: [100, 500],
-    13: [50, 200],
-    14: [40, 200],
-    15: [20, 100],
-  } as Record<number, [number, number]>,
-};
+export const OSMU_ATTRIBUTION = '© <a href="https://openstreetmap.us">OpenStreetMap US</a>';
 
 /**
  * Trail rendering — always dashed black lines.
