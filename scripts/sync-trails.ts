@@ -2,21 +2,21 @@
  * ROAM Trail Data Sync Script
  *
  * Fetches hiking trail data from OpenStreetMap (Overpass API)
- * and inserts/updates it in the Supabase database.
+ * and inserts/updates it in the SQLite database using better-sqlite3.
  *
  * Usage: npx tsx scripts/sync-trails.ts [--state CA] [--limit 500]
  */
 
 import axios from 'axios';
-import { createClient } from '@supabase/supabase-js';
+import Database from 'better-sqlite3';
+import path from 'path';
 import * as dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const DB_PATH = process.env.DATABASE_PATH || path.join(process.cwd(), 'roam.db');
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
 
 // US state bounding boxes (west, south, east, north)
 const STATE_BBOXES: Record<string, [number, number, number, number]> = {
@@ -265,11 +265,12 @@ async function syncState(stateCode: string, limit?: number) {
   const query = buildOverpassQuery(bbox);
 
   // Log sync start
-  const { data: logEntry } = await supabase
-    .from('sync_logs')
-    .insert({ source: 'osm', region: stateCode, status: 'running' })
-    .select()
-    .single();
+  const logInsert = db.prepare(`
+    INSERT INTO sync_logs (source, region, status, started_at)
+    VALUES (?, ?, ?, ?)
+  `);
+  const logResult = logInsert.run('osm', stateCode, 'running', new Date().toISOString());
+  const logId = logResult.lastInsertRowid;
 
   try {
     const response = await axios.post(OVERPASS_ENDPOINT, `data=${encodeURIComponent(query)}`, {
@@ -285,6 +286,25 @@ async function syncState(stateCode: string, limit?: number) {
     let skipped = 0;
 
     const trailsToProcess = limit ? elements.slice(0, limit) : elements;
+
+    // Prepare for upsert
+    const checkExisting = db.prepare(`
+      SELECT id FROM trails WHERE source = ? AND external_id = ?
+    `);
+    const insertTrail = db.prepare(`
+      INSERT INTO trails (
+        name, description, difficulty, length_miles, route_type, surface_type,
+        geometry, center_point, source, external_id, source_data,
+        pet_friendly, water_available, maintained_by, state, last_synced_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const updateTrail = db.prepare(`
+      UPDATE trails SET
+        description = ?, difficulty = ?, length_miles = ?, route_type = ?, surface_type = ?,
+        geometry = ?, center_point = ?, source_data = ?,
+        pet_friendly = ?, water_available = ?, maintained_by = ?, last_synced_at = ?, updated_at = ?
+      WHERE id = ?
+    `);
 
     for (const element of trailsToProcess) {
       const tags = element.tags || {};
@@ -309,66 +329,66 @@ async function syncState(stateCode: string, limit?: number) {
           ? `${element.type}/${element.id}`
           : `${element.type}/${element.id}/chain-${ci}`;
 
-        const trail = {
-          name: tags.name,
-          description: tags.description || tags.note || null,
-          difficulty: mapDifficulty(tags),
-          length_miles: Math.round(lengthMiles * 100) / 100,
-          route_type: tags.roundtrip === 'yes' ? 'loop' : null,
-          surface_type: tags.surface || null,
-          geometry: `SRID=4326;LINESTRING(${coords.map((c) => `${c[0]} ${c[1]}`).join(',')})`,
-          center_point: `SRID=4326;POINT(${centroid[0]} ${centroid[1]})`,
-          source: 'osm' as const,
-          external_id: externalId,
-          source_data: tags,
-          pet_friendly: tags.dog === 'yes' ? true : tags.dog === 'no' ? false : null,
-          water_available: tags.drinking_water === 'yes' ? true : null,
-          maintained_by: tags.operator || null,
-          state: stateCode,
-          last_synced_at: new Date().toISOString(),
-        };
+        const now = new Date().toISOString();
+        const linestring = `SRID=4326;LINESTRING(${coords.map((c) => `${c[0]} ${c[1]}`).join(',')})`;
+        const point = `SRID=4326;POINT(${centroid[0]} ${centroid[1]})`;
+        const sourceData = JSON.stringify(tags);
+        const petFriendly = tags.dog === 'yes' ? true : tags.dog === 'no' ? false : null;
+        const waterAvailable = tags.drinking_water === 'yes' ? true : null;
+        const difficulty = mapDifficulty(tags);
+        const routeType = tags.roundtrip === 'yes' ? 'loop' : null;
+        const surfaceType = tags.surface || null;
+        const description = tags.description || tags.note || null;
+        const maintainedBy = tags.operator || null;
 
-        const { error } = await supabase
-          .from('trails')
-          .upsert(trail, { onConflict: 'source,external_id' });
+        try {
+          const existing = checkExisting.get('osm', externalId) as { id: string } | undefined;
 
-        if (error) {
-          console.error(`  Error inserting ${trail.name}:`, error.message);
+          if (existing) {
+            // Update existing trail
+            updateTrail.run(
+              description, difficulty, Math.round(lengthMiles * 100) / 100, routeType, surfaceType,
+              linestring, point, sourceData,
+              petFriendly, waterAvailable, maintainedBy, now, now,
+              existing.id
+            );
+            updated++;
+          } else {
+            // Insert new trail
+            insertTrail.run(
+              tags.name, description, difficulty, Math.round(lengthMiles * 100) / 100, routeType, surfaceType,
+              linestring, point, 'osm', externalId, sourceData,
+              petFriendly, waterAvailable, maintainedBy, stateCode, now, now, now
+            );
+            created++;
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          console.error(`  Error processing ${tags.name}:`, errorMsg);
           skipped++;
-        } else {
-          created++;
         }
       }
     }
 
-    console.log(`  Done: ${created} created/updated, ${skipped} skipped`);
+    console.log(`  Done: ${created} created, ${updated} updated, ${skipped} skipped`);
 
     // Update sync log
-    if (logEntry) {
-      await supabase
-        .from('sync_logs')
-        .update({
-          status: 'success',
-          trails_fetched: elements.length,
-          trails_created: created,
-          trails_updated: updated,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', logEntry.id);
-    }
+    const updateLog = db.prepare(`
+      UPDATE sync_logs SET
+        status = ?, trails_fetched = ?, trails_created = ?, trails_updated = ?, completed_at = ?
+      WHERE rowid = ?
+    `);
+    updateLog.run('success', elements.length, created, updated, new Date().toISOString(), logId);
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     console.error(`  Failed to sync ${stateCode}:`, errorMessage);
-    if (logEntry) {
-      await supabase
-        .from('sync_logs')
-        .update({
-          status: 'failed',
-          error_message: errorMessage,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', logEntry.id);
-    }
+
+    const updateLog = db.prepare(`
+      UPDATE sync_logs SET
+        status = ?, error_message = ?, completed_at = ?
+      WHERE rowid = ?
+    `);
+    updateLog.run('failed', errorMessage, new Date().toISOString(), logId);
   }
 }
 
