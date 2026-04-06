@@ -20,10 +20,6 @@ jobs:
         run: npm ci
 
       - name: Build
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key' }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-key' }}
         run: npm run build
 
       - name: Setup SSH
@@ -53,4 +49,4 @@ jobs:
           fi
 
           ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && cd /var/www/apps/roam && PORT=3002 pm2 restart roam --update-env || PORT=3002 pm2 start server.js --name roam --update-env && pm2 save'
+            'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && cd /var/www/apps/roam && PORT=3002 AUTH_PASSWORD=${{ secrets.AUTH_PASSWORD }} DATABASE_PATH=${{ secrets.DATABASE_PATH }} pm2 restart roam --update-env || PORT=3002 AUTH_PASSWORD=${{ secrets.AUTH_PASSWORD }} DATABASE_PATH=${{ secrets.DATABASE_PATH }} pm2 start server.js --name roam --update-env && pm2 save'
