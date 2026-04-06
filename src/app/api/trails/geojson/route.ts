@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { getDb } from '@/lib/db';
 
 // Street/road suffix patterns — if a name ends with these, it's not a trail
 const STREET_SUFFIXES = /\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|court|ct|place|pl|pike|highway|hwy|way)\s*$/i;
@@ -52,37 +52,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const db = getDb();
 
-    if (!url || !key) {
-      return NextResponse.json(
-        { trails: [], _error: 'Missing Supabase credentials' },
-        { status: 500 }
-      );
-    }
-
-    const supabase = createServiceClient();
-
-    const { data: rows, error } = await supabase.rpc('trails_in_bbox', {
-      vp_west: west,
-      vp_south: south,
-      vp_east: east,
-      vp_north: north,
-      max_results: maxResults,
-      min_length_miles: minLength,
-    });
-
-    if (error) {
-      console.error('[ROAM] Trail query error:', error);
-      return NextResponse.json(
-        { trails: [], _error: error.message },
-        { status: 500 }
-      );
-    }
+    const rows = db.prepare(`
+      SELECT id, name, difficulty, length_miles, elevation_gain_ft, route_type, region,
+             bbox_west, bbox_south, bbox_east, bbox_north
+      FROM trails
+      WHERE bbox_west IS NOT NULL
+        AND bbox_east >= ? AND bbox_west <= ?
+        AND bbox_north >= ? AND bbox_south <= ?
+        AND length_miles >= ?
+      ORDER BY length_miles DESC
+      LIMIT ?
+    `).all(west, east, south, north, minLength, maxResults) as TrailRow[];
 
     // Filter non-trails and build lightweight response
-    const trails = ((rows as TrailRow[]) || [])
+    const trails = (rows || [])
       .filter(r => isTrail(r.name || '') && (r.length_miles ?? 0) >= minLength)
       .map(r => ({
         id: r.id,

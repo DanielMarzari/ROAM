@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { getDb } from '@/lib/db';
 
 /**
  * GET /api/trails?query=...&difficulty=easy,moderate&min_length=1&max_length=10&limit=50&offset=0
@@ -17,40 +17,42 @@ export async function GET(request: NextRequest) {
   const offset = Number(searchParams.get('offset') || 0);
 
   try {
-    const supabase = createServiceClient();
-
-    let dbQuery = supabase
-      .from('trails')
-      .select('id, name, description, difficulty, length_miles, elevation_gain_ft, elevation_loss_ft, route_type, surface_type, state, source', { count: 'exact' })
-      .order('name')
-      .range(offset, offset + limit - 1);
+    const db = getDb();
+    const params: unknown[] = [];
+    let where = 'WHERE 1=1';
 
     if (query) {
-      dbQuery = dbQuery.ilike('name', `%${query}%`);
+      where += ' AND name LIKE ?';
+      params.push(`%${query}%`);
     }
 
     if (difficulties.length > 0) {
-      dbQuery = dbQuery.in('difficulty', difficulties);
+      where += ` AND difficulty IN (${difficulties.map(() => '?').join(',')})`;
+      params.push(...difficulties);
     }
 
     if (minLength !== null) {
-      dbQuery = dbQuery.gte('length_miles', minLength);
+      where += ' AND length_miles >= ?';
+      params.push(minLength);
     }
 
     if (maxLength !== null) {
-      dbQuery = dbQuery.lte('length_miles', maxLength);
+      where += ' AND length_miles <= ?';
+      params.push(maxLength);
     }
 
-    const { data, error, count } = await dbQuery;
+    const countStmt = db.prepare(`SELECT COUNT(*) as total FROM trails ${where}`);
+    const countRow = countStmt.get(...params) as { total: number };
 
-    if (error) {
-      console.error('Trail search error:', error);
-      return NextResponse.json({ trails: [], total: 0 });
-    }
+    const selectStmt = db.prepare(
+      `SELECT id, name, description, difficulty, length_miles, elevation_gain_ft, elevation_loss_ft, route_type, surface_type, state, source
+       FROM trails ${where} ORDER BY name LIMIT ? OFFSET ?`
+    );
+    const trails = selectStmt.all(...params, limit, offset);
 
     return NextResponse.json({
-      trails: data || [],
-      total: count || 0,
+      trails: trails || [],
+      total: countRow?.total || 0,
       limit,
       offset,
     });

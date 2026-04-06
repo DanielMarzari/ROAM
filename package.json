@@ -9,10 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.10.0",
-    "@supabase/supabase-js": "^2.101.1",
     "@turf/turf": "^7.3.4",
     "axios": "^1.14.0",
+    "better-sqlite3": "^9.2.2",
     "maplibre-gl": "^5.22.0",
     "next": "16.2.2",
     "react": "19.2.4",
@@ -21,6 +20,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

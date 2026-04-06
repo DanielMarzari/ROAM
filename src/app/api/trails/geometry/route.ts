@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
-
-interface GeomRow {
-  trail_id: string;
-  geom: GeoJSON.Geometry & { crs?: unknown };
-}
 
 /**
  * POST /api/trails/geometry
  * Body: { ids: string[] }
- * Returns GeoJSON FeatureCollection with geometry for requested trail IDs.
+ * Returns empty GeoJSON FeatureCollection.
+ *
+ * NOTE: Geometry data is not available in SQLite.
+ * The map uses OpenTrailMap vector tiles for rendering trail paths.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -23,38 +20,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Cap at 200 IDs per request
-    const limitedIds = ids.slice(0, 200);
-
-    const supabase = createServiceClient();
-
-    const { data: rows, error } = await supabase.rpc('trail_geometries_by_ids', {
-      trail_ids: limitedIds,
-    });
-
-    if (error) {
-      console.error('[ROAM] Geometry query error:', error);
-      return NextResponse.json(
-        { type: 'FeatureCollection', features: [], _error: error.message },
-        { status: 500 }
-      );
-    }
-
-    // PostgREST auto-parses geometry to GeoJSON — strip crs wrapper
-    const features: GeoJSON.Feature[] = ((rows as GeomRow[]) || [])
-      .filter(r => r.geom)
-      .map(r => ({
-        type: 'Feature' as const,
-        id: r.trail_id,
-        geometry: {
-          type: r.geom.type,
-          coordinates: (r.geom as { coordinates: unknown }).coordinates,
-        } as GeoJSON.Geometry,
-        properties: { id: r.trail_id },
-      }));
-
+    // Geometry data not available in SQLite
+    // Return empty features — map uses vector tiles for rendering
     return NextResponse.json(
-      { type: 'FeatureCollection', features },
+      { type: 'FeatureCollection', features: [] },
       { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' } }
     );
   } catch (err) {
