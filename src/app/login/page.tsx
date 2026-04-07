@@ -27,7 +27,8 @@ export default function LoginPage() {
         return;
       }
 
-      router.push('/');
+      // Full page reload ensures the new cookie is sent on the next request
+      window.location.href = '/';
     } catch (err) {
       setError('An error occurred. Please try again.');
       console.error('Login error:', err);
