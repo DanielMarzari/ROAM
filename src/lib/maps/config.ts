@@ -82,3 +82,38 @@ export const MINOR_ROAD_LAYERS = [
 ];
 export const MINOR_ROAD_COLOR = '#e8e8e8';
 export const MINOR_ROAD_CASING_COLOR = '#dcdcdc';
+
+/**
+ * Recreation activity types with colors and labels.
+ */
+export const ACTIVITY_TYPES = {
+  climbing: { label: 'Rock Climbing', color: '#ea580c', icon: 'climbing' },
+  cave: { label: 'Caves', color: '#6b7280', icon: 'cave' },
+  camping: { label: 'Camping', color: '#16a34a', icon: 'camping' },
+  via_ferrata: { label: 'Via Ferrata', color: '#dc2626', icon: 'via-ferrata' },
+  offroad: { label: 'Off-Roading', color: '#92400e', icon: 'offroad' },
+  kayak: { label: 'Kayaking', color: '#2563eb', icon: 'kayak' },
+  fishing: { label: 'Fishing', color: '#0891b2', icon: 'fishing' },
+} as const;
+
+export type ActivityType = keyof typeof ACTIVITY_TYPES;
+
+/**
+ * Map filter keys to their corresponding map layer IDs.
+ */
+export const FILTER_LAYER_MAP: Record<string, string[]> = {
+  nationalParks: ['park-fill-national', 'park-outline-national', 'park-labels-national'],
+  nationalForests: ['park-fill-forest', 'park-outline-forest', 'park-labels-forest'],
+  stateParks: ['park-fill-state', 'park-outline-state', 'park-labels-state'],
+  monuments: ['park-fill-monument', 'park-outline-monument', 'park-labels-monument'],
+  conservation: ['park-fill-conservation', 'park-outline-conservation', 'park-labels-conservation'],
+  tribalLands: ['tribal-lands-fill', 'tribal-lands-outline', 'tribal-lands-labels'],
+  climbing: ['recreation-climbing'],
+  caves: ['recreation-cave'],
+  camping: ['recreation-camping'],
+  viaFerrata: ['recreation-via_ferrata'],
+  offroad: ['recreation-offroad'],
+  kayaking: ['recreation-kayak'],
+  fishing: ['recreation-fishing'],
+  darkSky: ['dark-sky-markers'],
+};

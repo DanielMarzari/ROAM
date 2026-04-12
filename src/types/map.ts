@@ -20,6 +20,40 @@ export const DEFAULT_VIEWPORT: MapViewport = {
   zoom: 4,
 };
 
+export interface FilterState {
+  nationalParks: boolean;
+  nationalForests: boolean;
+  stateParks: boolean;
+  monuments: boolean;
+  conservation: boolean;
+  tribalLands: boolean;
+  climbing: boolean;
+  caves: boolean;
+  camping: boolean;
+  viaFerrata: boolean;
+  offroad: boolean;
+  kayaking: boolean;
+  fishing: boolean;
+  darkSky: boolean;
+}
+
+export const DEFAULT_FILTERS: FilterState = {
+  nationalParks: true,
+  nationalForests: true,
+  stateParks: true,
+  monuments: true,
+  conservation: true,
+  tribalLands: false,
+  climbing: false,
+  caves: false,
+  camping: false,
+  viaFerrata: false,
+  offroad: false,
+  kayaking: false,
+  fishing: false,
+  darkSky: false,
+};
+
 export const BASEMAP_STYLES: Record<BasemapStyle, { name: string; url: string }> = {
   outdoor: {
     name: 'Outdoor',

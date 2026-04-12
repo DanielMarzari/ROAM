@@ -9,20 +9,25 @@ import {
   PATH_LAYER_KEYWORDS, PATH_LAYER_EXCLUDE,
   HIGHWAY_LAYERS, HIGHWAY_COLOR, HIGHWAY_CASING_COLOR,
   MINOR_ROAD_LAYERS, MINOR_ROAD_COLOR, MINOR_ROAD_CASING_COLOR,
+  ACTIVITY_TYPES, FILTER_LAYER_MAP,
 } from '@/lib/maps/config';
 import {
   satelliteSource, satelliteLayer,
   hillshadeSource, hillshadeLayer,
   trailTileSource, trailLinesSolid, trailLinesDashed, trailLinesCasing,
   contourTileSource, contourLineLayer, contourLabelLayer,
-  parkFillLayer,
+  parkFillLayer, parkOutlineLayer, parkLabelLayer,
+  tribalLandsSource, tribalLandsFillLayer, tribalLandsOutlineLayer, tribalLandsLabelLayer,
+  recreationSource, recreationLayer,
+  darkSkySource, darkSkyMarkerLayer,
 } from '@/lib/maps/layers';
-import type { BasemapStyle } from '@/types/map';
+import type { BasemapStyle, FilterState } from '@/types/map';
+import { DEFAULT_FILTERS } from '@/types/map';
 import MapControls from './MapControls';
 import TrailSidebar from './TrailSidebar';
 
 // Boundary / admin layers to hide (keep boundary_2 = country outlines visible)
-const HIDDEN_LAYERS = ['boundary_3', 'boundary_disputed'];
+const HIDDEN_LAYERS = ['boundary_disputed'];
 
 // Our custom trail layer IDs (hidden by default — only selected trail highlights)
 const TRAIL_LAYER_IDS = ['trail-lines-solid', 'trail-lines', 'trail-lines-casing'];
@@ -122,6 +127,9 @@ export default function MapContainer() {
   const [trailGroups, setTrailGroups] = useState<TrailGroup[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM);
+  const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS });
+  const filtersRef = useRef<FilterState>({ ...DEFAULT_FILTERS });
+  const recreationLoadedRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => { showTrailsRef.current = showTrails; }, [showTrails]);
@@ -129,6 +137,7 @@ export default function MapContainer() {
   useEffect(() => { showSatelliteRef.current = showSatellite; }, [showSatellite]);
   useEffect(() => { showContoursRef.current = showContours; }, [showContours]);
   useEffect(() => { basemapRef.current = basemap; }, [basemap]);
+  useEffect(() => { filtersRef.current = filters; }, [filters]);
 
   // ── Basemap helpers ──
 
@@ -258,6 +267,12 @@ export default function MapContainer() {
             map.setPaintProperty(layer.id, 'text-halo-width', 1.5);
           } catch { /* skip */ }
         }
+        // State boundaries lighter in dark mode
+        if (layer.id === 'boundary_3') {
+          try {
+            map.setPaintProperty('boundary_3', 'line-color', '#6b7280');
+          } catch { /* skip */ }
+        }
       } catch { /* skip */ }
     }
   }, []);
@@ -296,10 +311,32 @@ export default function MapContainer() {
 
     // (selected-trail GeoJSON source removed — highlights now use vector tile filter)
 
+    // ── Tribal lands source (GeoJSON) ──
+    if (!map.getSource('tribal-lands')) {
+      map.addSource('tribal-lands', tribalLandsSource());
+    }
+
+    // ── Recreation sites source (dynamic GeoJSON) ──
+    if (!map.getSource('recreation-sites')) {
+      map.addSource('recreation-sites', recreationSource());
+    }
+
+    // ── Dark sky source (GeoJSON) ──
+    if (!map.getSource('dark-sky')) {
+      map.addSource('dark-sky', darkSkySource());
+    }
+
     // ── Overlay layers (added early so trails render on top) ──
     if (!map.getLayer('satellite-layer')) map.addLayer(satelliteLayer);
     if (!map.getLayer('hillshade-layer')) map.addLayer(hillshadeLayer);
     if (!map.getLayer('osm-park-fill')) map.addLayer(parkFillLayer);
+    if (!map.getLayer('osm-park-outline')) map.addLayer(parkOutlineLayer);
+
+    // Tribal lands layers (before trails so trails render on top)
+    if (!map.getLayer('tribal-lands-fill')) map.addLayer(tribalLandsFillLayer);
+    if (!map.getLayer('tribal-lands-outline')) map.addLayer(tribalLandsOutlineLayer);
+    if (!map.getLayer('tribal-lands-labels')) map.addLayer(tribalLandsLabelLayer);
+
     if (!map.getLayer('contour-lines')) map.addLayer(contourLineLayer);
     if (!map.getLayer('contour-labels')) map.addLayer(contourLabelLayer);
 
@@ -374,6 +411,27 @@ export default function MapContainer() {
       });
     }
 
+    // Park labels (above trails for readability)
+    if (!map.getLayer('osm-park-labels')) map.addLayer(parkLabelLayer);
+
+    // Recreation activity layers
+    for (const actType of Object.keys(ACTIVITY_TYPES)) {
+      const layerId = `recreation-${actType}`;
+      if (!map.getLayer(layerId)) map.addLayer(recreationLayer(actType));
+    }
+
+    // Dark sky markers
+    if (!map.getLayer('dark-sky-markers')) map.addLayer(darkSkyMarkerLayer);
+
+    // Restore filter visibility
+    for (const [filterKey, layerIds] of Object.entries(FILTER_LAYER_MAP)) {
+      const visible = filtersRef.current[filterKey as keyof FilterState];
+      const vis = visible ? 'visible' : 'none';
+      for (const id of layerIds) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+      }
+    }
+
     hideBoundaryLayers(map);
 
     // Style country outline (boundary_2) — subtle dark line
@@ -383,6 +441,17 @@ export default function MapContainer() {
         map.setPaintProperty('boundary_2', 'line-width', ['interpolate', ['linear'], ['zoom'], 2, 0.8, 6, 1.5, 10, 2]);
         map.setPaintProperty('boundary_2', 'line-opacity', 0.6);
         map.setLayoutProperty('boundary_2', 'visibility', 'visible');
+      } catch { /* skip */ }
+    }
+
+    // Style state boundaries (boundary_3) — thinner dashed line
+    if (map.getLayer('boundary_3')) {
+      try {
+        map.setPaintProperty('boundary_3', 'line-color', basemapRef.current === 'dark' ? '#6b7280' : '#888888');
+        map.setPaintProperty('boundary_3', 'line-width', ['interpolate', ['linear'], ['zoom'], 3, 0.3, 6, 0.6, 10, 1]);
+        map.setPaintProperty('boundary_3', 'line-opacity', 0.4);
+        map.setPaintProperty('boundary_3', 'line-dasharray', [4, 2]);
+        map.setLayoutProperty('boundary_3', 'visibility', 'visible');
       } catch { /* skip */ }
     }
 
@@ -471,6 +540,51 @@ export default function MapContainer() {
     }, 300);
   }, [loadSidebarMetadata]);
 
+  // ── Recreation data loading ──
+
+  const recreationAbortRef = useRef<AbortController | null>(null);
+
+  const loadRecreationSites = useCallback(async (map: maplibregl.Map) => {
+    const bounds = map.getBounds();
+    const zoom = map.getZoom();
+    if (zoom < 6) return; // Too zoomed out for recreation POIs
+
+    // Only fetch if at least one activity filter is on
+    const activeTypes = Object.entries(filtersRef.current)
+      .filter(([key, val]) => val && key in ACTIVITY_TYPES)
+      .map(([key]) => key);
+    // Map filter keys to activity type keys
+    const typeMap: Record<string, string> = {
+      climbing: 'climbing', caves: 'cave', camping: 'camping',
+      viaFerrata: 'via_ferrata', offroad: 'offroad', kayaking: 'kayak', fishing: 'fishing',
+    };
+    const apiTypes = Object.entries(filtersRef.current)
+      .filter(([key, val]) => val && typeMap[key])
+      .map(([key]) => typeMap[key]);
+    if (apiTypes.length === 0) return;
+
+    if (recreationAbortRef.current) recreationAbortRef.current.abort();
+    const controller = new AbortController();
+    recreationAbortRef.current = controller;
+
+    const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+    try {
+      const res = await fetch(
+        `/api/recreation?bbox=${bbox}&types=${apiTypes.join(',')}&limit=1000`,
+        { signal: controller.signal },
+      );
+      const data = await res.json();
+      const source = map.getSource('recreation-sites');
+      if (source && 'setData' in source) {
+        (source as maplibregl.GeoJSONSource).setData(data);
+      }
+      recreationLoadedRef.current = true;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      console.error('Failed to load recreation sites:', err);
+    }
+  }, []);
+
   // ── User marker ──
 
   const createUserMarker = useCallback((map: maplibregl.Map, lng: number, lat: number) => {
@@ -499,6 +613,7 @@ export default function MapContainer() {
       style: BASEMAP_STYLES.outdoor.url,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
+      minZoom: 3,
     });
 
     map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
@@ -542,6 +657,44 @@ export default function MapContainer() {
 
       // Click on trail → show popup with trail info from vector tile properties
       map.on('click', (e) => {
+        // Check recreation layers first
+        const recLayers = Object.keys(ACTIVITY_TYPES).map(t => `recreation-${t}`).filter(id => map.getLayer(id));
+        const recFeats = recLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: recLayers }) : [];
+        if (recFeats.length > 0) {
+          const props = recFeats[0].properties || {};
+          const name = props.name || 'Unnamed Location';
+          const actType = props.activity_type || '';
+          const config = ACTIVITY_TYPES[actType as keyof typeof ACTIVITY_TYPES];
+          const label = config?.label || actType;
+          new maplibregl.Popup({ offset: 10, maxWidth: '280px' })
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div style="font-family:system-ui;">
+                <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;">${name}</h3>
+                <div style="font-size:12px;color:${config?.color || '#666'};font-weight:600;margin-bottom:4px;">${label}</div>
+              </div>
+            `)
+            .addTo(map);
+          return;
+        }
+
+        // Check dark sky layer
+        const darkFeats = map.getLayer('dark-sky-markers') ? map.queryRenderedFeatures(e.point, { layers: ['dark-sky-markers'] }) : [];
+        if (darkFeats.length > 0) {
+          const props = darkFeats[0].properties || {};
+          new maplibregl.Popup({ offset: 10, maxWidth: '280px' })
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div style="font-family:system-ui;">
+                <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;">${props.name || 'Dark Sky Place'}</h3>
+                <div style="font-size:12px;color:#4338ca;font-weight:600;margin-bottom:4px;">Dark Sky ${props.type || 'Place'}</div>
+                ${props.state ? `<div style="font-size:12px;color:#666;">${props.state}</div>` : ''}
+              </div>
+            `)
+            .addTo(map);
+          return;
+        }
+
         const layers = interactiveLayers.filter(id => map.getLayer(id));
         const trailFeats = layers.length > 0 ? map.queryRenderedFeatures(e.point, { layers }) : [];
 
@@ -590,7 +743,10 @@ export default function MapContainer() {
       }
     });
 
-    map.on('moveend', () => loadTrailsForViewport(map));
+    map.on('moveend', () => {
+      loadTrailsForViewport(map);
+      loadRecreationSites(map);
+    });
     map.on('zoom', () => {
       setZoomLevel(Math.round(map.getZoom() * 10) / 10);
     });
@@ -600,10 +756,11 @@ export default function MapContainer() {
       // Clean up debounce timer and abort in-flight requests
       if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
       if (viewportAbortRef.current) viewportAbortRef.current.abort();
+      if (recreationAbortRef.current) recreationAbortRef.current.abort();
       map.remove();
       mapRef.current = null;
     };
-  }, [addSourcesAndLayers, loadTrailsForViewport, createUserMarker]);
+  }, [addSourcesAndLayers, loadTrailsForViewport, loadRecreationSites, createUserMarker]);
 
   // ── Basemap switch ──
 
@@ -677,6 +834,29 @@ export default function MapContainer() {
     if (!map || !mapLoaded) return;
     setBasemapPathsVisibility(map, visible);
   }, [mapLoaded, setBasemapPathsVisibility]);
+
+  // ── Filters ──
+
+  const handleFilterChange = useCallback((key: keyof FilterState, value: boolean) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+
+    const layerIds = FILTER_LAYER_MAP[key] || [];
+    const vis = value ? 'visible' : 'none';
+    for (const id of layerIds) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
+
+    // If toggling on a recreation activity, trigger data fetch
+    const typeMap: Record<string, string> = {
+      climbing: 'climbing', caves: 'cave', camping: 'camping',
+      viaFerrata: 'via_ferrata', offroad: 'offroad', kayaking: 'kayak', fishing: 'fishing',
+    };
+    if (value && typeMap[key]) {
+      loadRecreationSites(map);
+    }
+  }, [mapLoaded, loadRecreationSites]);
 
   // ── Sidebar ──
 
@@ -756,11 +936,13 @@ export default function MapContainer() {
             showTrails={showTrails}
             showContours={showContours}
             showBasemapPaths={showBasemapPaths}
+            filters={filters}
             onBasemapChange={handleBasemapChange}
             onSatelliteToggle={handleSatelliteToggle}
             onTrailToggle={handleTrailToggle}
             onContourToggle={handleContourToggle}
             onBasemapPathsToggle={handleBasemapPathsToggle}
+            onFilterChange={handleFilterChange}
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
             onLocate={handleLocate}

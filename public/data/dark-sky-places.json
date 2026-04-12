@@ -1,0 +1,630 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-77.823, 41.662] },
+      "properties": { "name": "Cherry Springs State Park", "type": "Park", "state": "PA", "designation_year": 2008 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-110.007, 37.623] },
+      "properties": { "name": "Natural Bridges National Monument", "type": "Park", "state": "UT", "designation_year": 2007 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.242, 29.25] },
+      "properties": { "name": "Big Bend National Park", "type": "Park", "state": "TX", "designation_year": 2012 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-117.079, 36.505] },
+      "properties": { "name": "Death Valley National Park", "type": "Park", "state": "CA", "designation_year": 2013 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-114.263, 38.983] },
+      "properties": { "name": "Great Basin National Park", "type": "Park", "state": "NV", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-84.76, 45.58] },
+      "properties": { "name": "Headlands International Dark Sky Park", "type": "Park", "state": "MI", "designation_year": 2011 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-108.975, 33.375] },
+      "properties": { "name": "Cosmic Campground", "type": "Sanctuary", "state": "NM", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.828, 36.058] },
+      "properties": { "name": "Grand Canyon National Park (South Rim)", "type": "Park", "state": "AZ", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.569, 38.734] },
+      "properties": { "name": "Canyonlands National Park", "type": "Park", "state": "UT", "designation_year": 2015 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.262, 38.282] },
+      "properties": { "name": "Capitol Reef National Park", "type": "Park", "state": "UT", "designation_year": 2015 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.82, 38.577] },
+      "properties": { "name": "Dead Horse Point State Park", "type": "Park", "state": "UT", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.987, 38.478] },
+      "properties": { "name": "Goblin Valley State Park", "type": "Park", "state": "UT", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.835, 37.593] },
+      "properties": { "name": "Bryce Canyon National Park", "type": "Park", "state": "UT", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.563, 37.883] },
+      "properties": { "name": "Hovenweep National Monument", "type": "Park", "state": "UT", "designation_year": 2014 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.598, 32.779] },
+      "properties": { "name": "Oasis State Park", "type": "Park", "state": "NM", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.514, 32.89] },
+      "properties": { "name": "Salinas Pueblo Missions National Monument", "type": "Park", "state": "NM", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-104.747, 32.175] },
+      "properties": { "name": "Carlsbad Caverns National Park", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.775, 32.836] },
+      "properties": { "name": "Three Rivers Petroglyph Site", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-108.831, 34.065] },
+      "properties": { "name": "Gila Cliff Dwellings National Monument", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-106.272, 32.613] },
+      "properties": { "name": "White Sands National Park", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-108.682, 36.804] },
+      "properties": { "name": "Chaco Culture National Historical Park", "type": "Park", "state": "NM", "designation_year": 2013 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-106.44, 34.013] },
+      "properties": { "name": "Bosque del Apache National Wildlife Refuge", "type": "Park", "state": "NM", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.76, 32.35] },
+      "properties": { "name": "Oliver Lee Memorial State Park", "type": "Park", "state": "NM", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.466, 36.539] },
+      "properties": { "name": "Clayton Lake State Park", "type": "Park", "state": "NM", "designation_year": 2010 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-107.724, 38.575] },
+      "properties": { "name": "Black Canyon of the Gunnison National Park", "type": "Park", "state": "CO", "designation_year": 2015 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-108.07, 37.196] },
+      "properties": { "name": "Mesa Verde National Park", "type": "Park", "state": "CO", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.683, 37.798] },
+      "properties": { "name": "Great Sand Dunes National Park", "type": "Park", "state": "CO", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-108.729, 38.47] },
+      "properties": { "name": "Curecanti National Recreation Area", "type": "Park", "state": "CO", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-108.478, 37.184] },
+      "properties": { "name": "Chimney Rock National Monument", "type": "Park", "state": "CO", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.577, 38.485] },
+      "properties": { "name": "Westcliffe/Silver Cliff", "type": "Community", "state": "CO", "designation_year": 2015 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.521, 36.451] },
+      "properties": { "name": "Capulin Volcano National Monument", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-104.714, 31.914] },
+      "properties": { "name": "Guadalupe Mountains National Park", "type": "Park", "state": "TX", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-104.024, 30.838] },
+      "properties": { "name": "Davis Mountains Preserve", "type": "Park", "state": "TX", "designation_year": 2012 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.948, 30.672] },
+      "properties": { "name": "McDonald Observatory", "type": "Park", "state": "TX", "designation_year": 2012 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-99.742, 30.457] },
+      "properties": { "name": "South Llano River State Park", "type": "Park", "state": "TX", "designation_year": 2014 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-98.838, 29.978] },
+      "properties": { "name": "Enchanted Rock State Natural Area", "type": "Park", "state": "TX", "designation_year": 2014 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-99.088, 31.072] },
+      "properties": { "name": "Copper Breaks State Park", "type": "Park", "state": "TX", "designation_year": 2014 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.294, 29.447] },
+      "properties": { "name": "Big Bend Ranch State Park", "type": "Park", "state": "TX", "designation_year": 2012 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.178, 30.922] },
+      "properties": { "name": "Balmorhea State Park", "type": "Park", "state": "TX", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.491, 36.998] },
+      "properties": { "name": "Rainbow Bridge National Monument", "type": "Park", "state": "UT", "designation_year": 2015 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.59, 40.6] },
+      "properties": { "name": "Jordan River Parkway Dark Sky Site", "type": "Urban Night Sky Place", "state": "UT", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.602, 40.296] },
+      "properties": { "name": "North Fork Park", "type": "Park", "state": "UT", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.183, 37.252] },
+      "properties": { "name": "Zion National Park", "type": "Park", "state": "UT", "designation_year": 2021 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-113.06, 37.68] },
+      "properties": { "name": "Cedar Breaks National Monument", "type": "Park", "state": "UT", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.311, 38.614] },
+      "properties": { "name": "Arches National Park", "type": "Park", "state": "UT", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.527, 38.522] },
+      "properties": { "name": "Fremont Indian State Park", "type": "Park", "state": "UT", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.31, 38.075] },
+      "properties": { "name": "Moab", "type": "Community", "state": "UT", "designation_year": 2023 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.759, 34.825] },
+      "properties": { "name": "Sedona", "type": "Community", "state": "AZ", "designation_year": 2014 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.651, 35.199] },
+      "properties": { "name": "Flagstaff", "type": "Community", "state": "AZ", "designation_year": 2001 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.051, 32.181] },
+      "properties": { "name": "Saguaro National Park (Tucson Mountain District)", "type": "Park", "state": "AZ", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.87, 34.95] },
+      "properties": { "name": "Petrified Forest National Park", "type": "Park", "state": "AZ", "designation_year": 2014 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.982, 34.565] },
+      "properties": { "name": "Tonto National Monument", "type": "Park", "state": "AZ", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.136, 34.375] },
+      "properties": { "name": "Prescott National Forest (Goldwater Lake)", "type": "Park", "state": "AZ", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.425, 32.982] },
+      "properties": { "name": "Oracle State Park", "type": "Park", "state": "AZ", "designation_year": 2014 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.512, 32.237] },
+      "properties": { "name": "Tucson", "type": "Community", "state": "AZ", "designation_year": 2022 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-110.339, 31.917] },
+      "properties": { "name": "Kartchner Caverns State Park", "type": "Park", "state": "AZ", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-110.897, 31.958] },
+      "properties": { "name": "Tumacacori National Historical Park", "type": "Park", "state": "AZ", "designation_year": 2015 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.729, 36.059] },
+      "properties": { "name": "Grand Canyon-Parashant National Monument", "type": "Park", "state": "AZ", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-113.987, 46.88] },
+      "properties": { "name": "Glacier National Park", "type": "Park", "state": "MT", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.591, 44.46] },
+      "properties": { "name": "Yellowstone National Park", "type": "Park", "state": "WY", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-110.682, 43.731] },
+      "properties": { "name": "Grand Teton National Park", "type": "Park", "state": "WY", "designation_year": 2022 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-107.813, 37.938] },
+      "properties": { "name": "Telluride", "type": "Community", "state": "CO", "designation_year": 2021 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-114.514, 42.979] },
+      "properties": { "name": "Craters of the Moon National Monument", "type": "Park", "state": "ID", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-113.485, 43.412] },
+      "properties": { "name": "City of Rocks National Reserve", "type": "Park", "state": "ID", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-115.16, 43.645] },
+      "properties": { "name": "Bruneau Dunes State Park", "type": "Park", "state": "ID", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-116.72, 33.75] },
+      "properties": { "name": "Joshua Tree National Park", "type": "Park", "state": "CA", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-118.292, 37.872] },
+      "properties": { "name": "Mono Basin/Mono Lake", "type": "Park", "state": "CA", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-120.74, 35.343] },
+      "properties": { "name": "Morro Bay", "type": "Community", "state": "CA", "designation_year": 2022 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-116.866, 33.355] },
+      "properties": { "name": "Borrego Springs", "type": "Community", "state": "CA", "designation_year": 2009 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-86.03, 44.735] },
+      "properties": { "name": "Sleeping Bear Dunes National Lakeshore", "type": "Park", "state": "MI", "designation_year": 2011 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-86.155, 45.009] },
+      "properties": { "name": "Leelanau State Park", "type": "Park", "state": "MI", "designation_year": 2011 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-83.944, 44.815] },
+      "properties": { "name": "Negwegon State Park", "type": "Park", "state": "MI", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-83.487, 45.056] },
+      "properties": { "name": "Thompson's Harbor State Park", "type": "Park", "state": "MI", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-83.515, 44.971] },
+      "properties": { "name": "Rockport State Recreation Area", "type": "Park", "state": "MI", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-88.895, 46.722] },
+      "properties": { "name": "Keweenaw Dark Sky Park", "type": "Park", "state": "MI", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-89.316, 46.558] },
+      "properties": { "name": "Porcupine Mountains Wilderness State Park", "type": "Park", "state": "MI", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-86.49, 44.635] },
+      "properties": { "name": "Lake Ann Pathway Dark Sky Preserve", "type": "Park", "state": "MI", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-82.862, 39.345] },
+      "properties": { "name": "Tar Hollow State Park", "type": "Park", "state": "OH", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-80.947, 38.089] },
+      "properties": { "name": "Watoga State Park", "type": "Park", "state": "WV", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-79.536, 38.933] },
+      "properties": { "name": "Spruce Knob-Seneca Rocks", "type": "Park", "state": "WV", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-80.858, 37.766] },
+      "properties": { "name": "Droop Mountain Battlefield State Park", "type": "Park", "state": "WV", "designation_year": 2020 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-80.577, 37.492] },
+      "properties": { "name": "Camp Pocahontas", "type": "Park", "state": "WV", "designation_year": 2020 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-113.576, 38.19] },
+      "properties": { "name": "Kanab", "type": "Community", "state": "UT", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-86.119, 37.186] },
+      "properties": { "name": "Mammoth Cave National Park", "type": "Park", "state": "KY", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-83.513, 35.607] },
+      "properties": { "name": "Great Smoky Mountains National Park", "type": "Park", "state": "TN", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-79.58, 38.297] },
+      "properties": { "name": "Staunton River State Park", "type": "Park", "state": "VA", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-79.779, 37.813] },
+      "properties": { "name": "James River State Park", "type": "Park", "state": "VA", "designation_year": 2021 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-79.416, 38.543] },
+      "properties": { "name": "Shenandoah National Park", "type": "Park", "state": "VA", "designation_year": 2022 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.481, 40.695] },
+      "properties": { "name": "Stansbury Island", "type": "Park", "state": "UT", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.012, 39.018] },
+      "properties": { "name": "Antelope Island State Park", "type": "Park", "state": "UT", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-89.57, 37.197] },
+      "properties": { "name": "Ferne Clyffe State Park", "type": "Park", "state": "IL", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-87.048, 44.653] },
+      "properties": { "name": "Newport State Park", "type": "Park", "state": "WI", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-106.508, 35.047] },
+      "properties": { "name": "Albuquerque Open Space Visitor Center", "type": "Urban Night Sky Place", "state": "NM", "designation_year": 2017 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.938, 35.779] },
+      "properties": { "name": "Valles Caldera National Preserve", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-68.26, 44.35] },
+      "properties": { "name": "Acadia National Park", "type": "Park", "state": "ME", "designation_year": 2022 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-89.589, 46.87] },
+      "properties": { "name": "Apostle Islands National Lakeshore", "type": "Park", "state": "WI", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-88.65, 47.94] },
+      "properties": { "name": "Isle Royale National Park", "type": "Park", "state": "MI", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-90.489, 47.756] },
+      "properties": { "name": "Boundary Waters Canoe Area Wilderness", "type": "Sanctuary", "state": "MN", "designation_year": 2020 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-91.498, 47.894] },
+      "properties": { "name": "Voyageurs National Park", "type": "Park", "state": "MN", "designation_year": 2020 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.454, 43.879] },
+      "properties": { "name": "Badlands National Park", "type": "Park", "state": "SD", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-103.73, 43.56] },
+      "properties": { "name": "Wind Cave National Park", "type": "Park", "state": "SD", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-101.958, 46.588] },
+      "properties": { "name": "Theodore Roosevelt National Park", "type": "Park", "state": "ND", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-113.797, 48.739] },
+      "properties": { "name": "Flathead Lake State Park", "type": "Park", "state": "MT", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-111.15, 38.36] },
+      "properties": { "name": "Torrey", "type": "Community", "state": "UT", "designation_year": 2018 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-112.082, 41.739] },
+      "properties": { "name": "Golden Spike National Historical Park", "type": "Park", "state": "UT", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-110.488, 36.918] },
+      "properties": { "name": "Monument Valley Navajo Tribal Park", "type": "Park", "state": "AZ", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-110.086, 34.518] },
+      "properties": { "name": "Fool Hollow Lake Recreation Area", "type": "Park", "state": "AZ", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-93.254, 36.047] },
+      "properties": { "name": "Ozark Dark Skies", "type": "Community", "state": "AR", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-82.508, 27.477] },
+      "properties": { "name": "Myakka River State Park", "type": "Park", "state": "FL", "designation_year": 2021 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-81.768, 24.631] },
+      "properties": { "name": "Dry Tortugas National Park", "type": "Park", "state": "FL", "designation_year": 2021 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-80.95, 25.143] },
+      "properties": { "name": "Big Cypress National Preserve", "type": "Park", "state": "FL", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-80.667, 25.317] },
+      "properties": { "name": "Everglades National Park", "type": "Park", "state": "FL", "designation_year": 2020 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-81.093, 24.733] },
+      "properties": { "name": "Bahia Honda State Park", "type": "Park", "state": "FL", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-84.767, 31.467] },
+      "properties": { "name": "Stephen C. Foster State Park", "type": "Park", "state": "GA", "designation_year": 2016 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-75.632, 38.453] },
+      "properties": { "name": "Assateague Island National Seashore", "type": "Park", "state": "MD", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-156.155, 20.706] },
+      "properties": { "name": "Haleakala National Park", "type": "Park", "state": "HI", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-155.574, 19.817] },
+      "properties": { "name": "Mauna Kea", "type": "Sanctuary", "state": "HI", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-156.043, 20.757] },
+      "properties": { "name": "Kula Forest Reserve", "type": "Park", "state": "HI", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-73.874, 42.683] },
+      "properties": { "name": "John Boyd Thacher State Park", "type": "Park", "state": "NY", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-73.969, 42.127] },
+      "properties": { "name": "Taconic State Park", "type": "Park", "state": "NY", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-76.006, 42.457] },
+      "properties": { "name": "Finger Lakes (Watkins Glen)", "type": "Park", "state": "NY", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-109.771, 37.295] },
+      "properties": { "name": "Bears Ears National Monument", "type": "Park", "state": "UT", "designation_year": 2023 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-106.998, 34.529] },
+      "properties": { "name": "Sevilleta National Wildlife Refuge", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.567, 36.572] },
+      "properties": { "name": "Fort Union National Monument", "type": "Park", "state": "NM", "designation_year": 2019 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-92.768, 35.15] },
+      "properties": { "name": "Petit Jean State Park", "type": "Park", "state": "AR", "designation_year": 2019 }
+    }
+  ]
+}
