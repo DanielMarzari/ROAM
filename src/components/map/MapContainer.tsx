@@ -16,15 +16,19 @@ import {
   hillshadeSource, hillshadeLayer,
   trailTileSource, trailLinesSolid, trailLinesDashed, trailLinesCasing,
   contourTileSource, contourLineLayer, contourLabelLayer,
-  parkFillLayer, parkOutlineLayer, parkLabelLayer,
+  parkFillLayerFor, parkOutlineLayerFor, parkLabelLayerFor, PARK_CATEGORIES,
   tribalLandsSource, tribalLandsFillLayer, tribalLandsOutlineLayer, tribalLandsLabelLayer,
   recreationSource, recreationLayer,
   darkSkySource, darkSkyMarkerLayer,
+  precipitationSource, precipitationLayer,
 } from '@/lib/maps/layers';
 import type { BasemapStyle, FilterState } from '@/types/map';
 import { DEFAULT_FILTERS } from '@/types/map';
 import MapControls from './MapControls';
 import TrailSidebar from './TrailSidebar';
+import SearchBox, { type SearchResult } from './SearchBox';
+import WeatherPanel from './WeatherPanel';
+import { exportMapToPDF } from '@/lib/pdfExport';
 
 // Boundary / admin layers to hide (keep boundary_2 = country outlines visible)
 const HIDDEN_LAYERS = ['boundary_disputed'];
@@ -326,11 +330,26 @@ export default function MapContainer() {
       map.addSource('dark-sky', darkSkySource());
     }
 
+    // ── Precipitation radar source ──
+    if (!map.getSource('precipitation')) {
+      // 5-min-old timestamp aligned to RainViewer's 10-min frames
+      const ts = Math.floor(Date.now() / 1000 / 600) * 600;
+      map.addSource('precipitation', precipitationSource(ts));
+    }
+
+    // ── Custom-route source (for potential preview on main map — inert unless populated) ──
+
     // ── Overlay layers (added early so trails render on top) ──
     if (!map.getLayer('satellite-layer')) map.addLayer(satelliteLayer);
     if (!map.getLayer('hillshade-layer')) map.addLayer(hillshadeLayer);
-    if (!map.getLayer('osm-park-fill')) map.addLayer(parkFillLayer);
-    if (!map.getLayer('osm-park-outline')) map.addLayer(parkOutlineLayer);
+    if (!map.getLayer('precipitation-layer')) map.addLayer(precipitationLayer);
+    // Park fills — one layer per category
+    for (const cat of PARK_CATEGORIES) {
+      const fillId = `park-fill-${cat}`;
+      const outlineId = `park-outline-${cat}`;
+      if (!map.getLayer(fillId)) map.addLayer(parkFillLayerFor(cat));
+      if (!map.getLayer(outlineId)) map.addLayer(parkOutlineLayerFor(cat));
+    }
 
     // Tribal lands layers (before trails so trails render on top)
     if (!map.getLayer('tribal-lands-fill')) map.addLayer(tribalLandsFillLayer);
@@ -411,8 +430,11 @@ export default function MapContainer() {
       });
     }
 
-    // Park labels (above trails for readability)
-    if (!map.getLayer('osm-park-labels')) map.addLayer(parkLabelLayer);
+    // Park labels (one per category, above trails for readability)
+    for (const cat of PARK_CATEGORIES) {
+      const id = `park-labels-${cat}`;
+      if (!map.getLayer(id)) map.addLayer(parkLabelLayerFor(cat));
+    }
 
     // Recreation activity layers
     for (const actType of Object.keys(ACTIVITY_TYPES)) {
@@ -614,6 +636,8 @@ export default function MapContainer() {
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
       minZoom: 3,
+      // Preserve WebGL drawing buffer so PDF export can read canvas pixels
+      canvasContextAttributes: { preserveDrawingBuffer: true } as maplibregl.WebGLContextAttributesWithType,
     });
 
     map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
@@ -746,6 +770,8 @@ export default function MapContainer() {
     map.on('moveend', () => {
       loadTrailsForViewport(map);
       loadRecreationSites(map);
+      const c = map.getCenter();
+      setMapCenter({ lat: c.lat, lng: c.lng });
     });
     map.on('zoom', () => {
       setZoomLevel(Math.round(map.getZoom() * 10) / 10);
@@ -906,6 +932,65 @@ export default function MapContainer() {
     );
   }, [createUserMarker]);
 
+  // ── Search result handling ──
+  const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const handleSearchSelect = useCallback((r: SearchResult) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const lng = parseFloat(r.lon);
+    const lat = parseFloat(r.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+
+    // Fit bounds if available, else fly
+    if (r.boundingbox) {
+      const [south, north, west, east] = r.boundingbox.map(parseFloat);
+      map.fitBounds([[west, south], [east, north]], { padding: 60, maxZoom: 14, duration: 1200 });
+    } else {
+      map.flyTo({ center: [lng, lat], zoom: 12, speed: 1.5 });
+    }
+
+    // Marker
+    if (searchMarkerRef.current) searchMarkerRef.current.remove();
+    const el = document.createElement('div');
+    el.style.cssText = 'width:20px;height:20px;background:#dc2626;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+    searchMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .setPopup(new maplibregl.Popup({ offset: 14 }).setHTML(
+        `<div style="font-family:system-ui;padding:4px 0;">
+          <div style="font-size:13px;font-weight:600;">${r.display_name.split(',')[0]}</div>
+          <div style="font-size:11px;color:#666;text-transform:capitalize;">${r.type.replace(/_/g,' ')}</div>
+        </div>`
+      ))
+      .addTo(map);
+    searchMarkerRef.current.togglePopup();
+  }, []);
+
+  // ── PDF export ──
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const handleExportPDF = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    setPdfBusy(true);
+    try {
+      await exportMapToPDF(map);
+    } finally {
+      setPdfBusy(false);
+    }
+  }, []);
+
+  // ── Weather panel ──
+  const [showWeather, setShowWeather] = useState(false);
+  const [showPrecip, setShowPrecip] = useState(false);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: DEFAULT_CENTER[1], lng: DEFAULT_CENTER[0] });
+  const handlePrecipToggle = useCallback((v: boolean) => {
+    setShowPrecip(v);
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (map.getLayer('precipitation-layer')) {
+      map.setLayoutProperty('precipitation-layer', 'visibility', v ? 'visible' : 'none');
+    }
+  }, [mapLoaded]);
+
   return (
     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex' }}>
       <style>{`
@@ -929,6 +1014,18 @@ export default function MapContainer() {
       <div style={{ flex: 1, position: 'relative' }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
+        {mapLoaded && <SearchBox onSelect={handleSearchSelect} />}
+
+        {mapLoaded && showWeather && (
+          <WeatherPanel
+            lat={mapCenter.lat}
+            lng={mapCenter.lng}
+            onClose={() => setShowWeather(false)}
+            showPrecip={showPrecip}
+            onPrecipToggle={handlePrecipToggle}
+          />
+        )}
+
         {mapLoaded && (
           <MapControls
             basemap={basemap}
@@ -936,12 +1033,16 @@ export default function MapContainer() {
             showTrails={showTrails}
             showContours={showContours}
             showBasemapPaths={showBasemapPaths}
+            showWeather={showWeather}
             filters={filters}
             onBasemapChange={handleBasemapChange}
             onSatelliteToggle={handleSatelliteToggle}
             onTrailToggle={handleTrailToggle}
             onContourToggle={handleContourToggle}
             onBasemapPathsToggle={handleBasemapPathsToggle}
+            onWeatherToggle={() => setShowWeather((v) => !v)}
+            onExportPDF={handleExportPDF}
+            pdfBusy={pdfBusy}
             onFilterChange={handleFilterChange}
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}

@@ -9,12 +9,16 @@ interface MapControlsProps {
   showTrails: boolean;
   showContours: boolean;
   showBasemapPaths: boolean;
+  showWeather: boolean;
   filters: FilterState;
   onBasemapChange: (style: BasemapStyle) => void;
   onSatelliteToggle: (visible: boolean) => void;
   onTrailToggle: (visible: boolean) => void;
   onContourToggle: (visible: boolean) => void;
   onBasemapPathsToggle: (visible: boolean) => void;
+  onWeatherToggle: () => void;
+  onExportPDF: () => void;
+  pdfBusy: boolean;
   onFilterChange: (key: keyof FilterState, value: boolean) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -87,12 +91,16 @@ export default function MapControls({
   showTrails,
   showContours,
   showBasemapPaths,
+  showWeather,
   filters,
   onBasemapChange,
   onSatelliteToggle,
   onTrailToggle,
   onContourToggle,
   onBasemapPathsToggle,
+  onWeatherToggle,
+  onExportPDF,
+  pdfBusy,
   onFilterChange,
   onZoomIn,
   onZoomOut,
@@ -309,6 +317,42 @@ export default function MapControls({
           </div>
         )}
       </div>
+
+      {/* Weather */}
+      <button
+        onClick={onWeatherToggle}
+        style={{ ...btnBase, backgroundColor: showWeather ? '#16a34a' : '#fff', color: showWeather ? '#fff' : '#57534e' }}
+        aria-label="Toggle weather panel"
+        title="Weather"
+        onMouseEnter={(e) => { if (!showWeather) e.currentTarget.style.backgroundColor = '#f5f5f4'; }}
+        onMouseLeave={(e) => { if (!showWeather) e.currentTarget.style.backgroundColor = '#fff'; }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+        </svg>
+      </button>
+
+      {/* PDF export */}
+      <button
+        onClick={onExportPDF}
+        disabled={pdfBusy}
+        style={{ ...btnBase, opacity: pdfBusy ? 0.6 : 1 }}
+        aria-label="Download map as PDF"
+        title="Download PDF"
+        onMouseEnter={(e) => { if (!pdfBusy) e.currentTarget.style.backgroundColor = '#f5f5f4'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fff'; }}
+      >
+        {pdfBusy ? (
+          <div style={{ width: 16, height: 16, border: '2px solid #d6d3d1', borderTopColor: '#16a34a', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="12" y1="18" x2="12" y2="12" />
+            <polyline points="9 15 12 12 15 15" />
+          </svg>
+        )}
+      </button>
 
       {/* Divider */}
       <div style={{ width: 20, height: 1, backgroundColor: '#d6d3d1' }} />

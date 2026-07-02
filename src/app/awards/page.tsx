@@ -20,6 +20,7 @@ import {
 } from '@/lib/awards';
 import type { AwardsState, Badge } from '@/types/awards';
 import { DEFAULT_AWARDS_STATE } from '@/types/awards';
+import { buildAwardsExport, downloadJSON, sendAwardsToNavigator } from '@/lib/navigator';
 
 type Filter = 'all' | 'unlocked' | 'locked';
 
@@ -106,6 +107,22 @@ export default function AwardsPage() {
             className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md shadow-sm"
           >
             + Log a Hike
+          </button>
+          <button
+            onClick={() => {
+              const payload = buildAwardsExport(state);
+              downloadJSON(payload, `roam-awards-${new Date().toISOString().slice(0, 10)}`);
+            }}
+            className="px-4 py-2 bg-white hover:bg-stone-100 text-stone-700 text-sm font-medium rounded-md border border-stone-300"
+          >
+            📤 Export JSON
+          </button>
+          <button
+            onClick={() => sendAwardsToNavigator(buildAwardsExport(state))}
+            className="px-4 py-2 bg-white hover:bg-stone-100 text-stone-700 text-sm font-medium rounded-md border border-stone-300"
+            title="Send to navigator.danmarzari.com"
+          >
+            🧭 Send to Navigator
           </button>
           <button
             onClick={() => {

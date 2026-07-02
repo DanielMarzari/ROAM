@@ -1,14 +1,8 @@
-import type { LayerSpecification, SourceSpecification } from 'maplibre-gl';
+import type { LayerSpecification, SourceSpecification, FilterSpecification, ExpressionSpecification } from 'maplibre-gl';
 import { OVERLAY_TILES, ACTIVITY_TYPES } from './config';
 
 // ── OpenTrailMap tile sources (OSMU) ──
-// Free, pre-built vector + raster tiles updated every 4 hours from OSM.
-// See https://github.com/osmus/OpenTrailMap
 
-/**
- * OpenTrailMap trail vector tile source (z5–z14).
- * Layers: trail, trail_centerpoint, trail_poi, park, barrier_area, barrier_line
- */
 export function trailTileSource(): SourceSpecification {
   return {
     type: 'vector',
@@ -17,9 +11,6 @@ export function trailTileSource(): SourceSpecification {
   };
 }
 
-/**
- * Hillshade raster tiles from OpenTrailMap (pre-rendered, z1–z12).
- */
 export function hillshadeSource(): SourceSpecification {
   return {
     type: 'raster',
@@ -29,10 +20,6 @@ export function hillshadeSource(): SourceSpecification {
   };
 }
 
-/**
- * Contour vector tiles from OpenTrailMap (feet, pre-computed).
- * source-layer: "contours", fields: ele (Number), idx (Boolean = major contour)
- */
 export function contourTileSource(): SourceSpecification {
   return {
     type: 'vector',
@@ -41,9 +28,6 @@ export function contourTileSource(): SourceSpecification {
   };
 }
 
-/**
- * Satellite raster source.
- */
 export function satelliteSource(): SourceSpecification {
   return {
     type: 'raster',
@@ -54,9 +38,6 @@ export function satelliteSource(): SourceSpecification {
   };
 }
 
-/**
- * Satellite raster layer (hidden by default).
- */
 export const satelliteLayer: LayerSpecification = {
   id: 'satellite-layer',
   type: 'raster',
@@ -65,11 +46,6 @@ export const satelliteLayer: LayerSpecification = {
   paint: { 'raster-opacity': 0.8 },
 };
 
-/**
- * Hillshade raster layer — pre-rendered terrain shading.
- * Hidden by default; toggled together with contours.
- * Fades at higher zoom to avoid overwhelming detail.
- */
 export const hillshadeLayer: LayerSpecification = {
   id: 'hillshade-layer',
   type: 'raster',
@@ -80,10 +56,6 @@ export const hillshadeLayer: LayerSpecification = {
   },
 };
 
-/**
- * Contour line layer (vector tiles from OSMU).
- * idx=true → major contour (thicker). idx=false → minor (thinner).
- */
 export const contourLineLayer: LayerSpecification = {
   id: 'contour-lines',
   type: 'line',
@@ -102,10 +74,6 @@ export const contourLineLayer: LayerSpecification = {
   },
 };
 
-/**
- * Contour elevation labels (major contours only).
- * Uses Noto Sans Bold which OpenFreeMap serves.
- */
 export const contourLabelLayer: LayerSpecification = {
   id: 'contour-labels',
   type: 'symbol',
@@ -132,10 +100,8 @@ export const contourLabelLayer: LayerSpecification = {
   },
 };
 
-// ── Trail layers from OpenTrailMap vector tiles ──
-// source-layer: "trail", fields include: name, highway, foot, access, sac_scale, surface, etc.
+// ── Trail layers ──
 
-/** Trail lines — visible hiking/foot trails (solid at low zoom, dashed at high zoom) */
 export const trailLinesSolid: LayerSpecification = {
   id: 'trail-lines-solid',
   type: 'line',
@@ -146,10 +112,7 @@ export const trailLinesSolid: LayerSpecification = {
     ['has', 'highway'],
     ['in', ['get', 'highway'], ['literal', ['path', 'footway', 'track', 'cycleway', 'bridleway', 'steps']]],
   ],
-  layout: {
-    'line-join': 'round',
-    'line-cap': 'round',
-  },
+  layout: { 'line-join': 'round', 'line-cap': 'round' },
   paint: {
     'line-color': '#1a1a1a',
     'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 8, 0.6, 12, 1.5, 15, 2, 18, 3],
@@ -167,10 +130,7 @@ export const trailLinesDashed: LayerSpecification = {
     ['has', 'highway'],
     ['in', ['get', 'highway'], ['literal', ['path', 'footway', 'track', 'cycleway', 'bridleway', 'steps']]],
   ],
-  layout: {
-    'line-join': 'round',
-    'line-cap': 'round',
-  },
+  layout: { 'line-join': 'round', 'line-cap': 'round' },
   paint: {
     'line-color': '#1a1a1a',
     'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1.5, 15, 2, 18, 3],
@@ -189,10 +149,7 @@ export const trailLinesCasing: LayerSpecification = {
     ['has', 'highway'],
     ['in', ['get', 'highway'], ['literal', ['path', 'footway', 'track', 'cycleway', 'bridleway', 'steps']]],
   ],
-  layout: {
-    'line-join': 'round',
-    'line-cap': 'round',
-  },
+  layout: { 'line-join': 'round', 'line-cap': 'round' },
   paint: {
     'line-color': '#000000',
     'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.2, 12, 3, 15, 4, 18, 5.5],
@@ -200,74 +157,128 @@ export const trailLinesCasing: LayerSpecification = {
   },
 };
 
-// ── Park layers (enhanced with type-based styling) ──
-// The OpenTrailMap `park` source-layer includes national parks, forests, state parks, etc.
-// Fields available: name, boundary, protect_class, protection_title, operator, operator_type
+// ── Park layers (split by category) ──
 
-/**
- * Park type classification based on vector tile properties.
- * Uses protection_title, boundary, operator, and name fields.
- */
-export type ParkCategory = 'national_park' | 'national_forest' | 'state_park' | 'monument' | 'conservation';
+export type ParkCategory = 'national' | 'forest' | 'state' | 'monument' | 'conservation';
 
-/** Park fill colors by category */
 const PARK_COLORS: Record<ParkCategory, string> = {
-  national_park: '#a3d4a0',
-  national_forest: '#c5dbb8',
-  state_park: '#cce5c4',
-  monument: '#d4c9a8',
+  national:     '#a3d4a0',
+  forest:       '#c5dbb8',
+  state:        '#cce5c4',
+  monument:     '#d4c9a8',
   conservation: '#d0e0c8',
 };
 
-/** General park fill from OpenTrailMap trails source — base layer for all parks */
-export const parkFillLayer: LayerSpecification = {
-  id: 'osm-park-fill',
-  type: 'fill',
-  source: 'osm-trails',
-  'source-layer': 'park',
-  paint: {
-    'fill-color': '#c2e2b8',
-    'fill-opacity': 0.3,
-  },
+const PARK_LABEL_COLORS: Record<ParkCategory, string> = {
+  national:     '#2d5a27',
+  forest:       '#3f6a2a',
+  state:        '#4c7a3b',
+  monument:     '#7a5c1e',
+  conservation: '#4a6a3a',
 };
 
-/** Park outline — dashed border for all park polygons */
-export const parkOutlineLayer: LayerSpecification = {
-  id: 'osm-park-outline',
-  type: 'line',
-  source: 'osm-trails',
-  'source-layer': 'park',
-  paint: {
-    'line-color': '#6b8f60',
-    'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 8, 0.6, 12, 1],
-    'line-opacity': 0.4,
-    'line-dasharray': [3, 2],
-  },
-};
+// Case-insensitive "field contains needle" expression against tile properties.
+function fieldContains(field: string, needle: string): ExpressionSpecification {
+  return ['in', needle, ['downcase', ['to-string', ['coalesce', ['get', field], '']]]] as unknown as ExpressionSpecification;
+}
 
-/** Park name labels */
-export const parkLabelLayer: LayerSpecification = {
-  id: 'osm-park-labels',
-  type: 'symbol',
-  source: 'osm-trails',
-  'source-layer': 'park',
-  minzoom: 7,
-  filter: ['has', 'name'],
-  layout: {
-    'text-field': ['get', 'name'],
-    'text-size': ['interpolate', ['linear'], ['zoom'], 7, 9, 10, 11, 14, 13],
-    'text-font': ['Noto Sans Bold'],
-    'text-max-width': 8,
-    'text-allow-overlap': false,
-    'text-padding': 4,
-  },
-  paint: {
-    'text-color': '#2d5a27',
-    'text-halo-color': 'rgba(255,255,255,0.85)',
-    'text-halo-width': 1.5,
-    'text-halo-blur': 0.5,
-  },
-};
+function parkFilter(cat: ParkCategory): FilterSpecification {
+  const has = fieldContains;
+  switch (cat) {
+    case 'national':
+      return ['any',
+        has('protection_title', 'national park'),
+        has('boundary', 'national_park'),
+        ['all',
+          has('operator', 'national park service'),
+          ['!', has('protection_title', 'monument')],
+        ],
+      ] as unknown as FilterSpecification;
+    case 'forest':
+      return ['any',
+        has('protection_title', 'national forest'),
+        has('operator', 'forest service'),
+        has('name', 'national forest'),
+      ] as unknown as FilterSpecification;
+    case 'state':
+      return ['any',
+        has('protection_title', 'state park'),
+        has('name', 'state park'),
+        has('protection_title', 'state forest'),
+      ] as unknown as FilterSpecification;
+    case 'monument':
+      return ['any',
+        has('protection_title', 'national monument'),
+        has('name', 'national monument'),
+      ] as unknown as FilterSpecification;
+    case 'conservation':
+      return ['any',
+        has('protection_title', 'wilderness'),
+        has('protection_title', 'conservation'),
+        has('protection_title', 'wildlife refuge'),
+        has('protection_title', 'preserve'),
+        has('name', 'wildlife refuge'),
+        has('name', 'conservation area'),
+      ] as unknown as FilterSpecification;
+  }
+}
+
+export function parkFillLayerFor(cat: ParkCategory): LayerSpecification {
+  return {
+    id: `park-fill-${cat}`,
+    type: 'fill',
+    source: 'osm-trails',
+    'source-layer': 'park',
+    filter: parkFilter(cat),
+    paint: {
+      'fill-color': PARK_COLORS[cat],
+      'fill-opacity': cat === 'national' ? 0.45 : 0.3,
+    },
+  };
+}
+
+export function parkOutlineLayerFor(cat: ParkCategory): LayerSpecification {
+  return {
+    id: `park-outline-${cat}`,
+    type: 'line',
+    source: 'osm-trails',
+    'source-layer': 'park',
+    filter: parkFilter(cat),
+    paint: {
+      'line-color': PARK_LABEL_COLORS[cat],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 8, 0.6, 12, 1],
+      'line-opacity': 0.5,
+      'line-dasharray': [3, 2],
+    },
+  };
+}
+
+export function parkLabelLayerFor(cat: ParkCategory): LayerSpecification {
+  return {
+    id: `park-labels-${cat}`,
+    type: 'symbol',
+    source: 'osm-trails',
+    'source-layer': 'park',
+    minzoom: 7,
+    filter: ['all', parkFilter(cat), ['has', 'name']] as unknown as FilterSpecification,
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 7, 9, 10, 11, 14, 13],
+      'text-font': ['Noto Sans Bold'],
+      'text-max-width': 8,
+      'text-allow-overlap': false,
+      'text-padding': 4,
+    },
+    paint: {
+      'text-color': PARK_LABEL_COLORS[cat],
+      'text-halo-color': 'rgba(255,255,255,0.85)',
+      'text-halo-width': 1.5,
+      'text-halo-blur': 0.5,
+    },
+  };
+}
+
+export const PARK_CATEGORIES: ParkCategory[] = ['national', 'forest', 'state', 'monument', 'conservation'];
 
 // ── Tribal Lands layers ──
 
@@ -331,7 +342,6 @@ export function recreationSource(): SourceSpecification {
   };
 }
 
-/** Generate a circle layer for a specific activity type */
 export function recreationLayer(activityType: string): LayerSpecification {
   const config = ACTIVITY_TYPES[activityType as keyof typeof ACTIVITY_TYPES];
   const color = config?.color || '#6b7280';
@@ -373,5 +383,43 @@ export const darkSkyMarkerLayer: LayerSpecification = {
     'circle-stroke-color': '#a5b4fc',
     'circle-stroke-width': 2,
     'circle-opacity': 0.8,
+  },
+};
+
+// ── Weather (precipitation radar) source ──
+// RainViewer serves free public radar tiles — no key required.
+// See https://api.rainviewer.com/public/weather-maps.json for tile paths.
+export function precipitationSource(pastTs: number): SourceSpecification {
+  return {
+    type: 'raster',
+    tiles: [`https://tilecache.rainviewer.com/v2/radar/${pastTs}/256/{z}/{x}/{y}/2/1_1.png`],
+    tileSize: 256,
+    attribution: '© <a href="https://www.rainviewer.com">RainViewer</a>',
+  };
+}
+
+export const precipitationLayer: LayerSpecification = {
+  id: 'precipitation-layer',
+  type: 'raster',
+  source: 'precipitation',
+  layout: { visibility: 'none' },
+  paint: { 'raster-opacity': 0.65 },
+};
+
+// ── Custom route builder source (empty by default) ──
+export function customRouteSource(): SourceSpecification {
+  return { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+}
+
+export const customRouteLayer: LayerSpecification = {
+  id: 'custom-route-line',
+  type: 'line',
+  source: 'custom-route',
+  layout: { 'line-join': 'round', 'line-cap': 'round' },
+  paint: {
+    'line-color': ['case', ['==', ['get', 'kind'], 'connector'], '#f59e0b', '#dc2626'],
+    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 14, 6, 18, 9],
+    'line-opacity': 0.85,
+    'line-dasharray': ['case', ['==', ['get', 'kind'], 'connector'], ['literal', [2, 2]], ['literal', [1, 0]]],
   },
 };
